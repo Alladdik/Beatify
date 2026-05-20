@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "wM601EhqCqE=",
+  "success": true,
+  "projectFilePath": "D:\\spotify clone\\temp_spotify\\temp_spotify.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\alladdiks\\.nuget\\packages\\newtonsoft.json\\13.0.3\\newtonsoft.json.13.0.3.nupkg.sha512",
+    "C:\\Users\\alladdiks\\.nuget\\packages\\spotifyapi.web\\7.4.2\\spotifyapi.web.7.4.2.nupkg.sha512"
+  ],
+  "logs": []
+}

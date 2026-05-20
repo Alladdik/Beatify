@@ -1,0 +1,449 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using BeatifyServer.Data;
+using BeatifyServer.DTOs;
+using BeatifyServer.Models;
+
+namespace BeatifyServer.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class TracksController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    private readonly IWebHostEnvironment _env;
+
+    public TracksController(AppDbContext db, IWebHostEnvironment env)
+    {
+        _db = db;
+        _env = env;
+    }
+
+    // Supported formats
+    private static readonly HashSet<string> AudioExts = new(StringComparer.OrdinalIgnoreCase)
+        { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus", ".aiff", ".webm" };
+
+    private static readonly HashSet<string> VideoExts = new(StringComparer.OrdinalIgnoreCase)
+        { ".mp4", ".mkv", ".mov", ".avi", ".m4v" };
+
+    private static string GetMediaType(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLower();
+        if (VideoExts.Contains(ext)) return "video";
+        return "audio";
+    }
+
+    private static string GetContentType(string ext) => ext.ToLower() switch
+    {
+        ".mp3"  => "audio/mpeg",
+        ".wav"  => "audio/wav",
+        ".flac" => "audio/flac",
+        ".aac"  => "audio/aac",
+        ".ogg"  => "audio/ogg",
+        ".m4a"  => "audio/mp4",
+        ".opus" => "audio/opus",
+        ".wma"  => "audio/x-ms-wma",
+        ".mp4"  => "video/mp4",
+        ".webm" => "audio/webm",
+        ".mkv"  => "video/x-matroska",
+        ".mov"  => "video/quicktime",
+        ".avi"  => "video/x-msvideo",
+        ".m4v"  => "video/mp4",
+        _       => "application/octet-stream"
+    };
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        var userId = GetUserId();
+        var likedIds = userId > 0
+            ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
+            : new List<int>();
+
+        var tracks = await _db.Tracks
+            .Include(t => t.Artist).Include(t => t.Album)
+            .OrderByDescending(t => t.CreatedAt)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .ToListAsync();
+
+        return Ok(tracks.Select(t => MapTrack(t, likedIds)));
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(int id)
+    {
+        var userId = GetUserId();
+        var likedIds = userId > 0
+            ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
+            : new List<int>();
+
+        var track = await _db.Tracks.Include(t => t.Artist).Include(t => t.Album).FirstOrDefaultAsync(t => t.Id == id);
+        if (track == null) return NotFound();
+        return Ok(MapTrack(track, likedIds));
+    }
+
+    [HttpGet("{id}/stream")]
+    public async Task<IActionResult> Stream(int id)
+    {
+        var track = await _db.Tracks.FindAsync(id);
+        if (track == null) return NotFound();
+
+        var folder = track.MediaType == "video" ? "videos" : "tracks";
+        var filePath = Path.Combine(_env.WebRootPath, "uploads", folder, track.FilePath);
+        if (!System.IO.File.Exists(filePath))
+            return NotFound(new { message = "Файл не знайдено на сервері" });
+
+        track.PlayCount++;
+        await _db.SaveChangesAsync();
+
+        var ext = Path.GetExtension(track.FilePath);
+        var contentType = GetContentType(ext);
+
+        Response.Headers.Append("Accept-Ranges", "bytes");
+        var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return File(fileStream, contentType, enableRangeProcessing: true);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> Upload([FromForm] CreateTrackDto dto, IFormFile mediaFile, IFormFile? coverFile)
+    {
+        var ext = Path.GetExtension(mediaFile.FileName).ToLower();
+        if (!AudioExts.Contains(ext) && !VideoExts.Contains(ext))
+            return BadRequest(new { message = $"Формат {ext} не підтримується" });
+
+        var mediaType = GetMediaType(mediaFile.FileName);
+        var folder = mediaType == "video" ? "videos" : "tracks";
+        var uploadsPath = Path.Combine(_env.WebRootPath, "uploads", folder);
+        Directory.CreateDirectory(uploadsPath);
+
+        var mediaFileName = $"{Guid.NewGuid()}{ext}";
+        var mediaPath = Path.Combine(uploadsPath, mediaFileName);
+        using (var stream = new FileStream(mediaPath, FileMode.Create))
+            await mediaFile.CopyToAsync(stream);
+
+        string? coverPath = null;
+        if (coverFile != null)
+        {
+            var coversPath = Path.Combine(_env.WebRootPath, "uploads", "covers");
+            Directory.CreateDirectory(coversPath);
+            var coverFileName = $"{Guid.NewGuid()}{Path.GetExtension(coverFile.FileName)}";
+            using (var stream = new FileStream(Path.Combine(coversPath, coverFileName), FileMode.Create))
+                await coverFile.CopyToAsync(stream);
+            coverPath = coverFileName;
+        }
+
+        var track = new Track
+        {
+            Title = dto.Title,
+            ArtistId = dto.ArtistId,
+            AlbumId = dto.AlbumId,
+            FilePath = mediaFileName,
+            CoverPath = coverPath,
+            Duration = dto.Duration,
+            Genre = dto.Genre,
+            IsExplicit = dto.IsExplicit,
+            Lyrics = dto.Lyrics,
+            MediaType = mediaType
+        };
+
+        _db.Tracks.Add(track);
+        await _db.SaveChangesAsync();
+        await _db.Entry(track).Reference(t => t.Artist).LoadAsync();
+        await _db.Entry(track).Reference(t => t.Album).LoadAsync();
+
+        return CreatedAtAction(nameof(GetById), new { id = track.Id }, MapTrack(track, new List<int>()));
+    }
+
+    [HttpPut("{id}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> Update(int id, [FromForm] UpdateTrackDto dto, IFormFile? coverFile)
+    {
+        var track = await _db.Tracks
+            .Include(t => t.Artist).Include(t => t.Album)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (track == null) return NotFound();
+
+        if (!string.IsNullOrWhiteSpace(dto.Title)) track.Title = dto.Title;
+        if (dto.ArtistId is > 0) track.ArtistId = dto.ArtistId.Value;
+        track.AlbumId = dto.AlbumId > 0 ? dto.AlbumId : null;
+        if (dto.Genre != null) track.Genre = dto.Genre;
+        track.IsExplicit = dto.IsExplicit;
+        if (dto.Lyrics != null) track.Lyrics = dto.Lyrics;
+
+        if (coverFile != null)
+        {
+            var coversPath = Path.Combine(_env.WebRootPath, "uploads", "covers");
+            Directory.CreateDirectory(coversPath);
+            var coverFileName = $"{Guid.NewGuid()}{Path.GetExtension(coverFile.FileName)}";
+            await using var stream = new FileStream(Path.Combine(coversPath, coverFileName), FileMode.Create);
+            await coverFile.CopyToAsync(stream);
+            track.CoverPath = coverFileName;
+        }
+
+        await _db.SaveChangesAsync();
+        await _db.Entry(track).Reference(t => t.Artist).LoadAsync();
+        if (track.AlbumId.HasValue) await _db.Entry(track).Reference(t => t.Album).LoadAsync();
+
+        return Ok(MapTrack(track, new List<int>()));
+    }
+
+    [HttpGet("{id}/recommendations")]
+    public async Task<IActionResult> GetRecommendations(int id, [FromQuery] int limit = 6)
+    {
+        var track = await _db.Tracks.FindAsync(id);
+        if (track == null) return NotFound();
+
+        var userId = GetUserId();
+        var likedIds = userId > 0
+            ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
+            : new List<int>();
+
+        var byArtist = await _db.Tracks
+            .Include(t => t.Artist).Include(t => t.Album)
+            .Where(t => t.Id != id && t.ArtistId == track.ArtistId)
+            .OrderByDescending(t => t.PlayCount)
+            .Take(limit)
+            .ToListAsync();
+
+        var byGenre = string.IsNullOrWhiteSpace(track.Genre)
+            ? new List<Track>()
+            : await _db.Tracks
+                .Include(t => t.Artist).Include(t => t.Album)
+                .Where(t => t.Id != id && t.ArtistId != track.ArtistId && t.Genre == track.Genre)
+                .OrderByDescending(t => t.PlayCount)
+                .Take(limit)
+                .ToListAsync();
+
+        var recs = byArtist.Concat(byGenre).DistinctBy(t => t.Id).Take(limit).ToList();
+        return Ok(recs.Select(t => MapTrack(t, likedIds)));
+    }
+
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var track = await _db.Tracks.FindAsync(id);
+        if (track == null) return NotFound();
+
+        var folder = track.MediaType == "video" ? "videos" : "tracks";
+        var filePath = Path.Combine(_env.WebRootPath, "uploads", folder, track.FilePath);
+        if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath);
+
+        _db.Tracks.Remove(track);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpGet("stats")]
+    [Authorize]
+    public async Task<IActionResult> GetStats()
+    {
+        var userId = GetUserId();
+        var cutoff = DateTime.UtcNow.Date.AddDays(-29); // inclusive last 30 days
+
+        // Daily plays: group by date for the last 30 days (current user only)
+        var dailyPlays = await _db.ListeningHistory
+            .Where(h => h.UserId == userId && h.PlayedAt >= cutoff)
+            .GroupBy(h => h.PlayedAt.Date)
+            .Select(g => new { date = g.Key, count = g.Count() })
+            .OrderBy(x => x.date)
+            .ToListAsync();
+
+        // Top 10 tracks by play count from ListeningHistory (current user only)
+        var topTrackIds = await _db.ListeningHistory
+            .Where(h => h.UserId == userId)
+            .GroupBy(h => h.TrackId)
+            .Select(g => new { trackId = g.Key, playCount = g.Count() })
+            .OrderByDescending(x => x.playCount)
+            .Take(10)
+            .ToListAsync();
+
+        var topTrackIdList = topTrackIds.Select(x => x.trackId).ToList();
+        var topTrackModels = await _db.Tracks
+            .Include(t => t.Artist)
+            .Where(t => topTrackIdList.Contains(t.Id))
+            .ToListAsync();
+
+        var topTracks = topTrackIds
+            .Select(x =>
+            {
+                var t = topTrackModels.FirstOrDefault(m => m.Id == x.trackId);
+                if (t == null) return null;
+                return new
+                {
+                    id        = t.Id,
+                    title     = t.Title,
+                    artistName = t.Artist?.Name ?? "",
+                    coverPath = t.CoverPath,
+                    playCount = x.playCount
+                };
+            })
+            .Where(x => x != null)
+            .ToList();
+
+        // Top 10 artists by play count from ListeningHistory (current user only)
+        var topArtistData = await _db.ListeningHistory
+            .Where(h => h.UserId == userId)
+            .Join(_db.Tracks, h => h.TrackId, t => t.Id, (h, t) => new { t.ArtistId })
+            .GroupBy(x => x.ArtistId)
+            .Select(g => new { artistId = g.Key, playCount = g.Count() })
+            .OrderByDescending(x => x.playCount)
+            .Take(10)
+            .ToListAsync();
+
+        var topArtistIdList = topArtistData.Select(x => x.artistId).ToList();
+        var topArtistModels = await _db.Artists
+            .Where(a => topArtistIdList.Contains(a.Id))
+            .ToListAsync();
+
+        var topArtists = topArtistData
+            .Select(x =>
+            {
+                var a = topArtistModels.FirstOrDefault(m => m.Id == x.artistId);
+                if (a == null) return null;
+                return new
+                {
+                    id        = a.Id,
+                    name      = a.Name,
+                    imagePath = a.ImagePath,
+                    playCount = x.playCount
+                };
+            })
+            .Where(x => x != null)
+            .ToList();
+
+        var totalPlays   = await _db.ListeningHistory.Where(h => h.UserId == userId).CountAsync();
+        var uniqueTracks = await _db.ListeningHistory.Where(h => h.UserId == userId).Select(h => h.TrackId).Distinct().CountAsync();
+
+        return Ok(new
+        {
+            dailyPlays = dailyPlays.Select(d => new
+            {
+                date  = d.date.ToString("yyyy-MM-dd"),
+                count = d.count
+            }),
+            topTracks,
+            topArtists,
+            totalPlays,
+            uniqueTracks
+        });
+    }
+
+    [HttpGet("trending")]
+    public async Task<IActionResult> GetTrending()
+    {
+        var userId = GetUserId();
+        var likedIds = userId > 0
+            ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
+            : new List<int>();
+
+        var tracks = await _db.Tracks.Include(t => t.Artist).Include(t => t.Album)
+            .OrderByDescending(t => t.PlayCount).Take(10).ToListAsync();
+        return Ok(tracks.Select(t => MapTrack(t, likedIds)));
+    }
+
+    [HttpGet("new-releases")]
+    public async Task<IActionResult> GetNewReleases()
+    {
+        var userId = GetUserId();
+        var likedIds = userId > 0
+            ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
+            : new List<int>();
+
+        var tracks = await _db.Tracks.Include(t => t.Artist).Include(t => t.Album)
+            .OrderByDescending(t => t.CreatedAt).Take(10).ToListAsync();
+        return Ok(tracks.Select(t => MapTrack(t, likedIds)));
+    }
+
+    [HttpPost("{id}/log-play")]
+    [Authorize]
+    public async Task<IActionResult> LogPlay(int id)
+    {
+        var userId = GetUserId();
+        var track = await _db.Tracks.FindAsync(id);
+        if (track == null) return NotFound();
+        _db.ListeningHistory.Add(new ListeningHistory { UserId = userId, TrackId = id });
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("history")]
+    [Authorize]
+    public async Task<IActionResult> GetHistory([FromQuery] int limit = 50, [FromQuery] int offset = 0)
+    {
+        var userId = GetUserId();
+        var likedIds = await _db.LikedTracks
+            .Where(lt => lt.UserId == userId)
+            .Select(lt => lt.TrackId)
+            .ToListAsync();
+
+        var total = await _db.ListeningHistory.CountAsync(h => h.UserId == userId);
+
+        var history = await _db.ListeningHistory
+            .Where(h => h.UserId == userId)
+            .OrderByDescending(h => h.PlayedAt)
+            .Skip(offset)
+            .Take(limit)
+            .ToListAsync();
+
+        var trackIds = history.Select(h => h.TrackId).Distinct().ToList();
+        var tracks = await _db.Tracks
+            .Include(t => t.Artist).Include(t => t.Album)
+            .Where(t => trackIds.Contains(t.Id))
+            .ToListAsync();
+
+        var result = history
+            .Select(h => new
+            {
+                historyId = h.Id,
+                playedAt  = h.PlayedAt,
+                track     = tracks.FirstOrDefault(t => t.Id == h.TrackId) is Track t ? MapTrack(t, likedIds) : null
+            })
+            .Where(x => x.track != null);
+
+        return Ok(new { total, offset, limit, items = result });
+    }
+
+    [HttpPost("{id}/like")]
+    [Authorize]
+    public async Task<IActionResult> Like(int id)
+    {
+        var userId = GetUserId();
+        var existing = await _db.LikedTracks.FirstOrDefaultAsync(lt => lt.UserId == userId && lt.TrackId == id);
+        if (existing != null)
+        {
+            _db.LikedTracks.Remove(existing);
+            await _db.SaveChangesAsync();
+            return Ok(new { liked = false });
+        }
+        _db.LikedTracks.Add(new LikedTrack { UserId = userId, TrackId = id });
+        await _db.SaveChangesAsync();
+        return Ok(new { liked = true });
+    }
+
+    [HttpGet("liked")]
+    [Authorize]
+    public async Task<IActionResult> GetLiked()
+    {
+        var userId = GetUserId();
+        var likedIds = await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync();
+        var tracks = await _db.Tracks.Include(t => t.Artist).Include(t => t.Album)
+            .Where(t => likedIds.Contains(t.Id)).ToListAsync();
+        return Ok(tracks.Select(t => MapTrack(t, likedIds)));
+    }
+
+    private int GetUserId()
+    {
+        var claim = User.FindFirst(ClaimTypes.NameIdentifier);
+        return claim != null ? int.Parse(claim.Value) : 0;
+    }
+
+    private static TrackDto MapTrack(Track t, List<int> likedIds) =>
+        new(t.Id, t.Title, t.ArtistId, t.Artist?.Name ?? "-",
+            t.AlbumId, t.Album?.Title,
+            t.CoverPath, t.Duration, t.Genre, t.PlayCount, t.IsExplicit,
+            likedIds.Contains(t.Id), t.CreatedAt, t.Lyrics, t.MediaType);
+}

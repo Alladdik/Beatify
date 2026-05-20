@@ -1,0 +1,55 @@
+{
+  "name": "beatify",
+  "version": "1.0.0",
+  "description": "Beatify — desktop music player",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm run dev --prefix client\" \"wait-on tcp:5173 && electron . --dev\"",
+    "build": "npm run build --prefix client && electron-builder",
+    "electron": "electron .",
+    "start": "electron . --dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^36.9.5",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.beatify.desktop",
+    "productName": "Beatify",
+    "copyright": "Copyright © 2025",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "electron/assets"
+    },
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "electron/assets/icon.icns",
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "beatify-electron",
+  "version": "1.0.0",
+  "description": "Beatify Desktop Launcher",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "electron": "^33.0.0"
+  }
+}

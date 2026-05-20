@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "PowerShell(where.exe yt-dlp; Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Packages\" -Recurse -Filter \"yt-dlp.exe\" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName)",
+      "Bash(dotnet build *)",
+      "Bash(cp -v uploads/covers/* wwwroot/uploads/covers/)",
+      "Bash(cp -v uploads/tracks/* wwwroot/uploads/tracks/)",
+      "Bash(cp -v uploads/artists/* wwwroot/uploads/artists/)",
+      "Bash(Select-String -Pattern \"error CS|warning CS|Build succeeded|Build FAILED\")",
+      "Bash(Get-ChildItem -Path \"D:\\\\spotify clone\\\\client\\\\src\\\\components\" -Filter \"*.jsx\" -File)",
+      "Bash(Select-Object Name)",
+      "Bash(npm install *)",
+      "Bash(node -e \"require\\('./electron/main.js'\\)\")",
+      "Bash(dir \"D:\\\\spotify clone\\\\electron\")",
+      "Bash(Select-String \"tanstack\")",
+      "Bash(node -e \"const l=require\\('lucide-react'\\); console.log\\('CloudDownload:', !!l.CloudDownload\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(npm list *)",
+      "Bash(npm run *)",
+      "Bash(npx vite *)",
+      "Bash(Get-ChildItem -Path \"D:\\\\spotify clone\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(findstr /i \"error CS\")",
+      "Bash(Select-String \"error CS\")",
+      "Bash(dir Controllers /b)",
+      "Bash(findstr /n \"artist\\\\|Artist\\\\|yt-dlp\\\\|ytdlp\\\\|download\" Controllers\\\\ExternalSearchController.cs)",
+      "Bash(node -e \"const l = require\\('lucide-react'\\); console.log\\('MicVocal:', !!l.MicVocal, 'PictureInPicture2:', !!l.PictureInPicture2, 'ArrowLeftRight:', !!l.ArrowLeftRight, 'Keyboard:', !!l.Keyboard, 'CloudDownload:', !!l.CloudDownload, 'CheckCircle2:', !!l.CheckCircle2, 'Timer:', !!l.Timer, 'Radio:', !!l.Radio, 'Maximize2:', !!l.Maximize2, 'MonitorPlay:', !!l.MonitorPlay\\)\")",
+      "Bash(taskkill /PID 12616 /F)",
+      "PowerShell(Stop-Process -Id 12616 -Force -ErrorAction SilentlyContinue)",
+      "Bash(dotnet run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5000/api/download/artistsearch?name=test&platform=youtube&limit=5\" -H \"Authorization: Bearer dummy\")",
+      "Bash(yt-dlp --dump-json --flat-playlist --no-warnings \"ytsearch5:Morgenshtern\")",
+      "PowerShell(Get-Process | Where-Object { $_.ProcessName -eq \"BeatifyServer\" -or \\($_.ProcessName -eq \"dotnet\" -and $_.MainWindowTitle -eq \"\"\\) } | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Output \"Cleared old processes\")"
+    ]
+  }
+}
