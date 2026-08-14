@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   hideMiniPlayer:    () => ipcRenderer.invoke('miniPlayer:hide'),
   miniPlayerControl: (cmd) => ipcRenderer.invoke('miniPlayer:control', cmd),
   setPlayerState:    (state) => ipcRenderer.invoke('player:setState', state),
+  thumbarInit:       (icons) => ipcRenderer.invoke('thumbar:init', icons),
+  thumbarSetState:   (playing) => ipcRenderer.invoke('thumbar:setState', playing),
   onPlayerState: (cb) => {
     const h = (_, state) => cb(state);
     ipcRenderer.on('player:state', h);

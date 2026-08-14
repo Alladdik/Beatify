@@ -122,4 +122,68 @@ app.MapHub<ListenTogetherHub>("/hubs/listentogether");
 app.MapHub<CollaborativeHub>("/hubs/collaborative");
 app.MapHub<DeviceSyncHub>("/hubs/devicesync");
 
+// ── Serve React SPA (dist-web/) ────────────────────────────────────────────
+// Built with `npm run build:web` — assets use base '/' so all routes work.
+var spaRoot = Path.GetFullPath(
+    Path.Combine(builder.Environment.ContentRootPath, "../client/dist-web"));
+
+if (Directory.Exists(spaRoot))
+{
+    // Static assets (JS, CSS, images)
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(spaRoot),
+        RequestPath = "",
+        OnPrepareResponse = ctx =>
+            ctx.Context.Response.Headers.Append("Cache-Control", "public,max-age=86400,immutable")
+    });
+
+    // SPA fallback: any non-API/hub/upload path returns index.html
+    app.MapFallback(async ctx =>
+    {
+        var p = ctx.Request.Path.Value ?? "";
+        if (p.StartsWith("/api") || p.StartsWith("/hubs") || p.StartsWith("/uploads"))
+        {
+            ctx.Response.StatusCode = 404;
+            return;
+        }
+        var indexFile = Path.Combine(spaRoot, "index.html");
+        if (File.Exists(indexFile))
+        {
+            ctx.Response.ContentType = "text/html; charset=utf-8";
+            ctx.Response.Headers.Append("Cache-Control", "no-cache");
+            await ctx.Response.SendFileAsync(indexFile);
+        }
+    });
+
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine("[SPA] Serving React app from: " + spaRoot);
+    Console.ResetColor();
+}
+else
+{
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine("[SPA] dist-web not found — run `npm run build:web` in /client to enable web access.");
+    Console.ResetColor();
+}
+
+// ── Print network URLs ─────────────────────────────────────────────────────
+var ip = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+    .SelectMany(i => i.GetIPProperties().UnicastAddresses)
+    .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+             && !System.Net.IPAddress.IsLoopback(a.Address)
+             && a.Address.ToString().StartsWith("192."))
+    .Select(a => a.Address.ToString())
+    .FirstOrDefault() ?? "YOUR_LOCAL_IP";
+
+Console.WriteLine();
+Console.ForegroundColor = ConsoleColor.Cyan;
+Console.WriteLine("╔════════════════════════════════════════════════╗");
+Console.WriteLine("║  Beatify is running!                           ║");
+Console.WriteLine($"║  PC:     http://localhost:5000                 ║");
+Console.WriteLine($"║  Phone:  http://{ip}:5000{new string(' ', Math.Max(0, 19 - ip.Length))}║");
+Console.WriteLine("╚════════════════════════════════════════════════╝");
+Console.ResetColor();
+Console.WriteLine();
+
 app.Run();

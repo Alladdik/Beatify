@@ -5,9 +5,15 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others \"npm run dev --prefix client\" \"wait-on tcp:5173 && electron . --dev\"",
+    "build:client": "npm run build --prefix client",
+    "build:web": "npm run build:web --prefix client",
     "build": "npm run build --prefix client && electron-builder",
+    "start": "npm run build:web && dotnet build server -c Release && electron .",
+    "start:web": "npm run build:web && node scripts/start-web.js",
+    "app": "electron .",
+    "shortcut": "powershell -ExecutionPolicy Bypass -File scripts/create-shortcut.ps1",
     "electron": "electron .",
-    "start": "electron . --dev"
+    "electron:dev": "electron . --dev"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

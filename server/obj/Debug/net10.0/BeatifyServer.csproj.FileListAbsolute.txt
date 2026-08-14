@@ -298,3 +298,4 @@ D:\spotify clone\server\bin\Debug\net10.0\%TEMP%\beatify_check\BeatifyServer.dep
 D:\spotify clone\server\bin\Debug\net10.0\%TEMP%\beatify_check\BeatifyServer.runtimeconfig.json
 D:\spotify clone\server\bin\Debug\net10.0\%TEMP%\beatify_check\BeatifyServer.staticwebassets.endpoints.json
 D:\spotify clone\server\bin\Debug\net10.0\%TEMP%\beatify_check\BeatifyServer.staticwebassets.runtime.json
+D:\spotify clone\server\obj\Debug\net10.0\BeatifyServer.sourcelink.json

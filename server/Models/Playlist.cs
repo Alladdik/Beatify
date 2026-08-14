@@ -9,6 +9,7 @@ public class Playlist
     public string? Description { get; set; }
     public string? CoverPath { get; set; }
     public bool IsPublic { get; set; } = false;
+    public bool IsCollaborative { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<PlaylistTrack> PlaylistTracks { get; set; } = new List<PlaylistTrack>();

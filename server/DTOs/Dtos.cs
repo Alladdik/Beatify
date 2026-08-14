@@ -31,9 +31,9 @@ public record CreateTrackDto(string Title, int? ArtistId, int? AlbumId, string? 
 public record UpdateTrackDto(string? Title, int? ArtistId, int AlbumId, string? Genre, bool IsExplicit, string? Lyrics);
 
 // Playlist
-public record PlaylistDto(int Id, int UserId, string UserName, string Title, string? Description, string? CoverPath, bool IsPublic, int TrackCount, DateTime CreatedAt);
-public record CreatePlaylistDto(string Title, string? Description, bool IsPublic);
-public record UpdatePlaylistDto(string? Title, string? Description, bool? IsPublic);
+public record PlaylistDto(int Id, int UserId, string UserName, string Title, string? Description, string? CoverPath, bool IsPublic, bool IsCollaborative, int TrackCount, DateTime CreatedAt);
+public record CreatePlaylistDto(string Title, string? Description, bool IsPublic, bool IsCollaborative = false);
+public record UpdatePlaylistDto(string? Title, string? Description, bool? IsPublic, bool? IsCollaborative);
 public record AddTrackToPlaylistDto(int TrackId);
 public record ReorderPlaylistDto(List<int> TrackIds);
 
@@ -42,3 +42,7 @@ public record SearchResultDto(List<TrackDto> Tracks, List<ArtistDto> Artists, Li
 
 // Player
 public record PlaybackLogDto(int TrackId);
+
+// Download
+public record DownloadRequestDto(string Url, string? Title, string? ArtistName, int? ArtistId, int? AlbumId, string? Genre, string? CoverUrl);
+public record DownloadPlaylistRequestDto(string Url, string? AlbumTitle, string? ArtistName, int? ArtistId, string? Genre);

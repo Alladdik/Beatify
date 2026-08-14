@@ -1,0 +1,18 @@
+{
+  "appId": "com.beatify.mobile",
+  "appName": "Beatify",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "Keyboard": {
+      "resize": "body"
+    }
+  }
+}

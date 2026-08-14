@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import toast from 'react-hot-toast';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = `http://${window.location.hostname}:5000`;
 
 export const useOfflineStore = create(
   persist(

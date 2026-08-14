@@ -332,6 +332,216 @@ public class DownloadController : ControllerBase
         }
     }
 
+    // GET /api/download/playlist-info?url=...
+    // Preview playlist / album tracks before bulk download
+    [HttpGet("playlist-info")]
+    public async Task<IActionResult> GetPlaylistInfo([FromQuery] string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return BadRequest(new { message = "URL обов'язковий" });
+
+        try
+        {
+            var res = await RunYtDlp(new[] { "--flat-playlist", "-J", $"\"{url}\"" });
+            if (!res.Success || string.IsNullOrWhiteSpace(res.Output))
+                return BadRequest(new { message = "Не вдалося розпізнати альбом або плейлист." });
+
+            using var doc = JsonDocument.Parse(res.Output);
+            var root = doc.RootElement;
+
+            var albumTitle = root.TryGetProperty("title", out var tProp) ? tProp.GetString() : "Альбом";
+            var artistName = root.TryGetProperty("uploader", out var uProp) ? uProp.GetString()
+                           : root.TryGetProperty("artist", out var aProp) ? aProp.GetString() : "Невідомий виконавець";
+            var coverUrl = root.TryGetProperty("thumbnail", out var thProp) ? thProp.GetString() : null;
+
+            var itemsList = new List<object>();
+            if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in entries.EnumerateArray())
+                {
+                    var trackTitle = entry.TryGetProperty("title", out var tt) ? tt.GetString() : "Трек";
+                    var trackUrl = entry.TryGetProperty("url", out var tu) ? tu.GetString()
+                                 : entry.TryGetProperty("webpage_url", out var wp) ? wp.GetString() : null;
+                    var duration = entry.TryGetProperty("duration", out var dur) && dur.ValueKind == JsonValueKind.Number ? dur.GetInt32() : 0;
+
+                    if (!string.IsNullOrWhiteSpace(trackUrl))
+                    {
+                        if (!trackUrl.StartsWith("http")) trackUrl = $"https://www.youtube.com/watch?v={trackUrl}";
+                        itemsList.Add(new { title = trackTitle, url = trackUrl, duration });
+                    }
+                }
+            }
+
+            return Ok(new {
+                title = albumTitle,
+                artist = artistName,
+                coverUrl,
+                totalTracks = itemsList.Count,
+                tracks = itemsList
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Playlist info error for {Url}", url);
+            return BadRequest(new { message = "Не вдалося отримати дані про альбом." });
+        }
+    }
+
+    // POST /api/download/playlist
+    // Bulk download full album or playlist
+    [HttpPost("playlist")]
+    public async Task<IActionResult> DownloadPlaylist([FromBody] DownloadPlaylistRequestDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Url))
+            return BadRequest(new { message = "URL обов'язковий" });
+
+        try
+        {
+            // Step 1: Preview playlist info
+            var res = await RunYtDlp(new[] { "--flat-playlist", "-J", $"\"{dto.Url}\"" });
+            if (!res.Success || string.IsNullOrWhiteSpace(res.Output))
+                return BadRequest(new { message = "Не вдалося розпізнати альбом або плейлист для завантаження." });
+
+            using var doc = JsonDocument.Parse(res.Output);
+            var root = doc.RootElement;
+
+            var albumTitle = !string.IsNullOrWhiteSpace(dto.AlbumTitle) ? dto.AlbumTitle
+                           : root.TryGetProperty("title", out var tProp) ? tProp.GetString() : "Новий Альбом";
+            var artistName = !string.IsNullOrWhiteSpace(dto.ArtistName) ? dto.ArtistName
+                           : root.TryGetProperty("uploader", out var uProp) ? uProp.GetString()
+                           : root.TryGetProperty("artist", out var aProp) ? aProp.GetString() : "Невідомий виконавець";
+            var coverUrl = root.TryGetProperty("thumbnail", out var thProp) ? thProp.GetString() : null;
+
+            // Find or create Artist
+            Artist artist;
+            if (dto.ArtistId.HasValue && dto.ArtistId > 0)
+            {
+                artist = await _db.Artists.FindAsync(dto.ArtistId.Value) ?? new Artist { Name = artistName };
+            }
+            else
+            {
+                var existingArtist = await _db.Artists.FirstOrDefaultAsync(a => a.Name == artistName);
+                if (existingArtist != null) artist = existingArtist;
+                else
+                {
+                    artist = new Artist { Name = artistName, Genre = dto.Genre };
+                    _db.Artists.Add(artist);
+                    await _db.SaveChangesAsync();
+                }
+            }
+
+            // Save Album cover image
+            string? albumCoverPath = null;
+            if (!string.IsNullOrWhiteSpace(coverUrl))
+            {
+                try
+                {
+                    var httpClient = _http.CreateClient();
+                    var imgBytes = await httpClient.GetByteArrayAsync(coverUrl);
+                    var coverFileName = $"{Guid.NewGuid()}.jpg";
+                    var coversPath = Path.Combine(_env.WebRootPath, "uploads", "covers");
+                    Directory.CreateDirectory(coversPath);
+                    await System.IO.File.WriteAllBytesAsync(Path.Combine(coversPath, coverFileName), imgBytes);
+                    albumCoverPath = coverFileName;
+                }
+                catch { /* ignore cover error */ }
+            }
+
+            // Create Album
+            var album = new Album
+            {
+                Title = albumTitle ?? "Альбом",
+                ArtistId = artist.Id,
+                CoverPath = albumCoverPath,
+                Year = DateTime.UtcNow.Year,
+                Genre = dto.Genre
+            };
+            _db.Albums.Add(album);
+            await _db.SaveChangesAsync();
+
+            // Extract playlist entries
+            var trackUrls = new List<(string Title, string Url)>();
+            if (root.TryGetProperty("entries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in entries.EnumerateArray())
+                {
+                    var trackTitle = entry.TryGetProperty("title", out var tt) ? tt.GetString() : "Трек";
+                    var trackUrl = entry.TryGetProperty("url", out var tu) ? tu.GetString()
+                                 : entry.TryGetProperty("webpage_url", out var wp) ? wp.GetString() : null;
+
+                    if (!string.IsNullOrWhiteSpace(trackUrl))
+                    {
+                        if (!trackUrl.StartsWith("http")) trackUrl = $"https://www.youtube.com/watch?v={trackUrl}";
+                        trackUrls.Add((trackTitle ?? "Трек", trackUrl));
+                    }
+                }
+            }
+
+            int downloadedCount = 0;
+            var tracksPath = Path.Combine(_env.WebRootPath, "uploads", "tracks");
+            Directory.CreateDirectory(tracksPath);
+
+            foreach (var item in trackUrls)
+            {
+                try
+                {
+                    var outputId = Guid.NewGuid().ToString();
+                    var outputTemplate = Path.Combine(tracksPath, $"{outputId}.%(ext)s");
+
+                    var dlArgs = new[]
+                    {
+                        "--no-playlist",
+                        "--format", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+                        "-o", $"\"{outputTemplate}\"",
+                        $"\"{item.Url}\""
+                    };
+
+                    var dlRes = await RunYtDlp(dlArgs);
+                    if (!dlRes.Success) continue;
+
+                    var audioFile = Directory.GetFiles(tracksPath, $"{outputId}.*")
+                        .FirstOrDefault(f => !f.EndsWith(".jpg") && !f.EndsWith(".png") && !f.EndsWith(".webp"));
+                    if (audioFile == null) continue;
+
+                    var dur = await GetDurationAsync(audioFile);
+
+                    var track = new Track
+                    {
+                        Title = item.Title,
+                        ArtistId = artist.Id,
+                        AlbumId = album.Id,
+                        FilePath = Path.GetFileName(audioFile),
+                        CoverPath = albumCoverPath,
+                        Duration = dur,
+                        Genre = dto.Genre,
+                        MediaType = "audio"
+                    };
+
+                    _db.Tracks.Add(track);
+                    downloadedCount++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error downloading playlist track {Title}", item.Title);
+                }
+            }
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = $"Альбом \"{album.Title}\" успішно завантажено ({downloadedCount} треків)!",
+                albumId = album.Id,
+                totalDownloaded = downloadedCount
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Playlist download error for {Url}", dto.Url);
+            return StatusCode(500, new { message = $"Помилка завантаження альбому: {ex.Message}" });
+        }
+    }
+
     private static async Task<int> GetDurationAsync(string filePath)
     {
         try
