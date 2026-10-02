@@ -13,6 +13,10 @@
 .page-head .display, .page-head .h1 { overflow-wrap: anywhere; }
 .page-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-family: var(--font-mono); font-size: 0.72rem; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .page-meta > *:not(:last-child)::after { content: '·'; margin-left: 12px; color: var(--fg-4); }
+@media (max-width: 760px) {
+  .page-meta { gap: 4px 8px; font-size: 0.68rem; }
+  .page-meta > *:not(:last-child)::after { margin-left: 8px; }
+}
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: var(--s-2); }
 .page-lede { max-width: 56ch; color: var(--fg-2); font-size: 1.05rem; line-height: 1.5; }
 
@@ -190,7 +194,7 @@ mark { background: transparent; color: var(--accent-text); font-weight: 600; }
 .feed-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .feed-tools { position: absolute; right: var(--sheet-pad); bottom: var(--s-5); display: flex; align-items: center; gap: 8px; }
 @media (max-width: 760px) {
-  .feed { height: calc(100dvh - var(--titlebar-h) - var(--player-h) - var(--tabbar-h) - var(--safe-bottom) - 16px); }
+  .feed { height: calc(100dvh - var(--safe-top) - var(--titlebar-h) - var(--player-h) - var(--tabbar-h) - var(--safe-bottom) - 16px); }
   .feed-item { grid-template-columns: 1fr; align-content: center; gap: var(--s-5); padding: var(--s-4); }
   .feed-art .cover { width: min(72vw, 36vh); }
   .feed-tools { right: var(--s-3); bottom: var(--s-3); }

@@ -49,7 +49,7 @@
 .kara-rec { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-2); }
 .mic-go { color: var(--fg-3); }
 @media (max-width: 760px) {
-  .kara { height: calc(100dvh - var(--player-h) - var(--tabbar-h) - var(--safe-bottom) - 16px); }
+  .kara { height: calc(100dvh - var(--safe-top) - var(--player-h) - var(--tabbar-h) - var(--safe-bottom) - 16px); }
   .kara-side { position: absolute; right: 0; top: 0; bottom: 0; width: min(300px, 86vw); background: var(--bg); z-index: 5; }
   .kara-main { position: relative; }
 }

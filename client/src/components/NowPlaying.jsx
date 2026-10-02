@@ -23,7 +23,7 @@ function AxisReadout() {
     const a = axesFromMeter(m, RANGE);
     if (ref.current) ref.current.textContent = `wght ${String(a.wght).padStart(3, '0')} · wdth ${a.wdth.toFixed(1)}`;
   }), []);
-  return <span ref={ref} className="mono muted" style={{ fontSize: '0.7rem' }}>wght 000 · wdth 000.0</span>;
+  return <span ref={ref} className="mono muted axis-readout" style={{ fontSize: '0.7rem' }}>wght 000 · wdth 000.0</span>;
 }
 
 function NpScrubber() {
