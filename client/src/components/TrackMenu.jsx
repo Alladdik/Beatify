@@ -162,7 +162,7 @@ function MenuBody({ menu, close, mobile }) {
       {ext && track.externalUrl && (
         <>
           <a className="menu-item" href={track.externalUrl} target="_blank" rel="noreferrer noopener" onClick={close}><ExternalLink size={16} /> Відкрити на {track.source === 'soundcloud' ? 'SoundCloud' : 'YouTube'}</a>
-          {user?.role === 'admin' && <button className="menu-item" onClick={run(saveToLibrary)}><CloudDownload size={16} /> Зберегти в бібліотеку</button>}
+          {(user?.role === 'admin' || user?.canImport) && <button className="menu-item" onClick={run(saveToLibrary)}><CloudDownload size={16} /> Зберегти в бібліотеку</button>}
         </>
       )}
     </div>

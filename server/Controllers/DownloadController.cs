@@ -207,6 +207,9 @@ public class DownloadController : ControllerBase
             }
         }
 
+        // Warm the AAC copy now so the first play on an iPhone does not wait for the conversion
+        _ = AudioCompat.EnsureAacAsync(mp3File, Path.Combine(_env.WebRootPath, "uploads", "aac"));
+
         // Prefer ffprobe for duration when ffmpeg is present; fall back to metadata
         var dur = metaDuration > 0 ? metaDuration : await GetDurationAsync(mp3File);
 

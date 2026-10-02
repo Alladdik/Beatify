@@ -102,7 +102,11 @@ public class TracksController : ControllerBase
         if (!System.IO.File.Exists(filePath))
             return NotFound(new { message = "Файл не знайдено на сервері" });
 
-        var ext = Path.GetExtension(track.FilePath);
+        // WebM/Opus has no iPhone support: serve a cached AAC copy instead (audio only, the original stays as is)
+        if (track.MediaType != "video" && AudioCompat.NeedsConversion(filePath))
+            filePath = await AudioCompat.EnsureAacAsync(filePath, Path.Combine(_env.WebRootPath, "uploads", "aac"), HttpContext.RequestAborted);
+
+        var ext = Path.GetExtension(filePath);
         var contentType = GetContentType(ext);
 
         Response.Headers.Append("Accept-Ranges", "bytes");
