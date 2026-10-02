@@ -165,14 +165,21 @@ public class TracksController : ControllerBase
 
     // POST /api/tracks/mine — an artist releases their own track (also used by Studio → «Опублікувати»)
     [HttpPost("mine")]
-    [Authorize]
+    [Authorize(Policy = "CanUpload")]
     [RequestSizeLimit(157_286_400)]
     [RequestFormLimits(MultipartBodyLengthLimit = 157_286_400)]
     public async Task<IActionResult> UploadMine([FromForm] CreateTrackDto dto, IFormFile mediaFile, IFormFile? coverFile)
     {
         var userId = GetUserId();
         var artist = await _db.Artists.FirstOrDefaultAsync(a => a.UserId == userId);
-        if (artist == null) return BadRequest(new { message = "Спочатку станьте виконавцем у профілі" });
+        if (artist == null)
+        {
+            var owner = await _db.Users.FindAsync(userId);
+            if (owner == null) return Unauthorized();
+            artist = new Artist { Name = owner.Name, UserId = userId, Bio = "Новий виконавець на Beatify", Genre = "Various" };
+            _db.Artists.Add(artist);
+            await _db.SaveChangesAsync();
+        }
 
         var title = (dto.Title ?? "").Trim();
         if (title.Length == 0 || title.Length > 200) return BadRequest(new { message = "Вкажіть назву треку (до 200 символів)" });

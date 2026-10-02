@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Headphones, Heart, ListMusic, Compass, Mic, Upload, X, Check, Piano, Sun, Moon, Monitor, Keyboard,
-  LogOut, CloudOff, Server, Crown, Loader2, Sparkles, Flame, Disc3,
+  LogOut, CloudOff, Server, Crown, Loader2, Sparkles, Flame, Disc3, Send, Link2, Clock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authApi, usersApi, tracksApi, statsApi, errMsg } from '../api';
@@ -18,6 +18,7 @@ import { fileUrl, isNative, getServerUrl, setServerUrl } from '../lib/config';
 import { formatCount, formatTime, pluralUk } from '../lib/format';
 import Cover from '../components/ui/Cover';
 import Tile from '../components/Tile';
+import AccountSettings from '../components/AccountSettings';
 import TrackList from '../components/TrackRow';
 import { Section, Shelf, EmptyState } from '../components/Section';
 
@@ -41,6 +42,7 @@ function UploadModal({ onClose, onDone, initialFile }) {
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState(0);
   const [drag, setDrag] = useState(false);
+  const [rights, setRights] = useState(false);
   const input = useRef(null);
   const preview = cover ? URL.createObjectURL(cover) : null;
 
@@ -97,9 +99,10 @@ function UploadModal({ onClose, onDone, initialFile }) {
               <span className="muted" style={{ fontSize: '0.85rem' }}>{cover ? cover.name : 'Вибрати зображення (необов’язково)'}</span>
             </label>
           </div>
+          <label className="consent"><input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} /><span>Це мій трек, або в мене є право його публікувати. Я розумію, що він стане доступним усім слухачам, а адміністратор може його прибрати.</span></label>
           {busy && <div className="feed-progress" style={{ maxWidth: 'none' }}><i style={{ width: `${pct}%` }} /></div>}
         </div>
-        <div className="modal-foot"><button type="button" className="btn" onClick={onClose} disabled={busy}>Скасувати</button><button className="btn primary" disabled={busy || !file || !title.trim()}>{busy ? <><Loader2 size={15} className="spin" /> {pct}%</> : 'Опублікувати'}</button></div>
+        <div className="modal-foot"><button type="button" className="btn" onClick={onClose} disabled={busy}>Скасувати</button><button className="btn primary" disabled={busy || !file || !title.trim() || !rights}>{busy ? <><Loader2 size={15} className="spin" /> {pct}%</> : 'Опублікувати'}</button></div>
       </form>
     </div>
   );
@@ -123,9 +126,7 @@ export default function ProfilePage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [tab, setTab] = useState('overview');
-  const [name, setName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
-  const [saving, setSaving] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const [upload, setUpload] = useState(false);
   const [server, setServer] = useState(getServerUrl());
   const { pref, setPref } = useThemeStore();
@@ -146,15 +147,11 @@ export default function ProfilePage() {
 
   const refreshMe = async () => { const { data } = await authApi.me(); login(token, data); return data; };
 
-  const saveProfile = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const { data } = await usersApi.updateMe({ name: name.trim(), email: email.trim() });
-      login(token, data);
-      toast.success('Збережено');
-    } catch (err) { toast.error(errMsg(err, 'Не вдалося зберегти')); }
-    finally { setSaving(false); }
+  const requestUpload = async () => {
+    setRequesting(true);
+    try { const { data } = await usersApi.requestUpload(); login(token, data); toast.success('Запит надіслано адміністратору'); }
+    catch (err) { toast.error(errMsg(err, 'Не вдалося надіслати запит')); }
+    finally { setRequesting(false); }
   };
 
   const becomeArtist = async () => {
@@ -229,8 +226,22 @@ export default function ProfilePage() {
           />
         ) : (
           <>
+            {!user.canUpload && (
+              <div className="note" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {user.uploadRequested ? <Clock size={18} className="accent" /> : <Upload size={18} className="accent" />}
+                <span style={{ flex: 1, minWidth: 220 }}>
+                  {user.uploadRequested
+                    ? <><b>Запит надіслано.</b> Щойно адміністратор схвалить, тут з’явиться кнопка «Випустити трек».</>
+                    : user.uploadDenied
+                      ? <><b>Адміністратор поки не дозволив публікацію.</b> Ви можете подати запит ще раз.</>
+                      : <><b>Публікація треків — за дозволом адміністратора.</b> Попросіть доступ, і після схвалення ви зможете випускати власну музику.</>}
+                </span>
+                {!user.uploadRequested && <button className="btn sm primary" onClick={requestUpload} disabled={requesting}>{requesting ? <Loader2 size={14} className="spin" /> : <Send size={14} />} {user.uploadDenied ? 'Подати ще раз' : 'Попросити дозвіл'}</button>}
+              </div>
+            )}
             <div className="page-actions" style={{ marginTop: 0 }}>
-              <button className="btn primary lg" onClick={() => setUpload(true)}><Upload size={18} /> Випустити трек</button>
+              {user.canUpload && <button className="btn primary lg" onClick={() => setUpload(true)}><Upload size={18} /> Випустити трек</button>}
+              {user.canImport && <Link to="/import" className="btn lg"><Link2 size={18} /> Імпорт за посиланням</Link>}
               <Link to="/studio" className="btn lg"><Piano size={18} /> Створити в студії</Link>
               <Link to={`/artist/${user.artistId}`} className="btn lg">Моя сторінка</Link>
             </div>
@@ -254,12 +265,7 @@ export default function ProfilePage() {
 
       {tab === 'settings' && (
         <div className="page narrow" style={{ padding: 0, gap: 'var(--s-6)', animation: 'none' }}>
-          <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
-            <h2 className="h2">Акаунт</h2>
-            <div className="field"><label htmlFor="pf-name">Ім’я</label><input id="pf-name" className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></div>
-            <div className="field"><label htmlFor="pf-email">Email</label><input id="pf-email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-            <div><button className="btn primary" disabled={saving || (name === user.name && email === user.email)}>{saving ? <Loader2 size={15} className="spin" /> : 'Зберегти'}</button></div>
-          </form>
+          <AccountSettings />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
             <h2 className="h2">Вигляд</h2>

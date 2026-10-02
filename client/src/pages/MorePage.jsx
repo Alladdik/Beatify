@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Users, Piano, MicVocal, Gamepad2, CloudDownload, Shield, Command, LogOut, LogIn,
-  Sun, Moon, Monitor, ChevronRight, Clock, BarChart3, Download,
+  Sun, Moon, Monitor, ChevronRight, Clock, BarChart3, Download, Link2,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
@@ -73,6 +73,7 @@ export default function MorePage() {
           <div className="label">Ваше</div>
           <Row to="/history" icon={Clock} title="Історія" sub="Що ви слухали" />
           <Row to="/stats" icon={BarChart3} title="Статистика" sub="Виконавці й години" />
+          {user.canImport && user.role !== 'admin' && <Row to="/import" icon={Link2} title="Імпорт за посиланням" sub="YouTube, SoundCloud, Spotify" />}
           {user.role === 'admin' && <Row to="/admin" icon={Shield} title="Адмінка" sub="Музика, імпорт, користувачі" />}
         </div>
       )}

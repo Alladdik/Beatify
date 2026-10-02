@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Play, Square, Undo2, Redo2, Wand2, Download, FolderOpen, FilePlus2, Metronome, Save, Keyboard as KbIcon, SlidersHorizontal, LayoutGrid, ListMusic,
+  Play, Square, Undo2, Redo2, Wand2, Download, FolderOpen, FilePlus2, Metronome, Save, Keyboard as KbIcon,
+  Grid3x3, Piano, ListMusic, SlidersHorizontal, PanelLeft, CircleHelp, Info,
 } from 'lucide-react';
 import { useStudio, getEngine, disposeEngine } from '../studio/store';
 import { KEYS, SCALES } from '../studio/music';
 import { usePlayerStore } from '../store/playerStore';
-import TrackList from '../studio/ui/TrackList';
-import DrumGrid from '../studio/ui/DrumGrid';
-import PianoRoll from '../studio/ui/PianoRoll';
+import Browser from '../studio/ui/Browser';
+import ChannelRack from '../studio/ui/ChannelRack';
+import RollPanel from '../studio/ui/RollPanel';
 import Mixer from '../studio/ui/Mixer';
+import Panel from '../studio/ui/Panel';
 import SongView from '../studio/ui/SongView';
+import QuickStart from '../studio/ui/QuickStart';
 import Generator, { RegenBar } from '../studio/ui/Generator';
 import ExportModal from '../studio/ui/ExportModal';
 import ProjectsModal from '../studio/ui/ProjectsModal';
 import OnScreenKeys, { useLiveInput, RecButton } from '../studio/ui/LiveInput';
+
+const GUIDE_KEY = 'beatify_studio_guide';
+const DEFAULT_HINT = 'Наведіть курсор на будь-який елемент — тут зʼявиться підказка. Пробіл — грати/стоп · Ctrl+Z — скасувати · Ctrl+S — зберегти · A–L — клавіатура як піаніно';
 
 function useTapTempo() {
   const taps = useRef([]);
@@ -56,51 +62,65 @@ function Transport() {
   };
 
   return (
-    <div className="transport-bar">
+    <div className="transport-bar" role="toolbar" aria-label="Керування відтворенням">
       <div className="tb-group">
-        <button className="playbtn" onClick={play} aria-label={playing ? 'Стоп' : 'Грати'} title="Пробіл">
+        <button className="playbtn" onClick={play} aria-label={playing ? 'Стоп' : 'Грати'} data-hint="Грати / Стоп (Пробіл)">
           {playing ? <Square size={18} fill="currentColor" /> : <Play size={20} fill="currentColor" style={{ marginLeft: 2 }} />}
         </button>
-        <button className={`btn icon ${metronome ? 'on' : ''}`} onClick={() => st.setMetronome(!metronome)} aria-pressed={metronome} aria-label="Метроном" title="Метроном"><Metronome size={17} /></button>
         <RecButton />
+        <button className={`btn icon ${metronome ? 'on' : ''}`} onClick={() => st.setMetronome(!metronome)} aria-pressed={metronome} aria-label="Метроном" data-hint="Метроном — клацає в такт, щоб легше потрапляти в ритм"><Metronome size={17} /></button>
+        <div className="seg" role="group" aria-label="Що грати">
+          <button className={project.mode === 'pattern' ? 'on' : ''} onClick={() => st.setMode('pattern')} data-hint="PAT — циклить один патерн, з яким ви зараз працюєте">PAT</button>
+          <button className={project.mode === 'song' ? 'on' : ''} onClick={() => st.setMode('song')} disabled={!project.song.length} data-hint={project.song.length ? 'SONG — грає всю пісню з Плейліста' : 'SONG — спершу складіть пісню у вікні «Плейліст»'}>SONG</button>
+        </div>
       </div>
 
       <div className="tb-group">
-        <label className="tb-field"><span className="label">BPM</span>
+        <label className="tb-field" data-hint="Темп: ударів на хвилину. 70–90 — спокійно, 120 — танцювально, 170+ — швидко"><span className="label">BPM</span>
           <input className="input mono tb-bpm" type="number" min="40" max="220" value={project.bpm} onChange={(e) => st.setBpm(+e.target.value)} aria-label="Темп (BPM)" />
         </label>
-        <button className="btn sm" onClick={tap} title="Натискайте в ритм">Tap</button>
-        <label className="tb-field"><span className="label">Тон</span>
+        <button className="btn sm" onClick={tap} data-hint="Tap: натискайте в ритм музики 3–4 рази — темп визначиться сам">Tap</button>
+        <label className="tb-field" data-hint="Тональність: головна нота. Усі ноти підсвічуються в Піано-ролі під цей лад"><span className="label">Тон</span>
           <select className="select tb-sel" value={project.key} onChange={(e) => st.setKey(e.target.value)} aria-label="Тональність">{KEYS.map((k) => <option key={k}>{k}</option>)}</select>
         </label>
-        <label className="tb-field"><span className="label">Лад</span>
+        <label className="tb-field" data-hint="Лад: мінор звучить сумніше, мажор — світліше. У Піано-ролі ноти поза ладом затемнені"><span className="label">Лад</span>
           <select className="select tb-sel wide" value={project.scale} onChange={(e) => st.setScale(e.target.value)} aria-label="Лад">{Object.entries(SCALES).map(([id, s]) => <option key={id} value={id}>{s.label}</option>)}</select>
         </label>
-        <label className="tb-field"><span className="label">Такти</span>
+        <label className="tb-field" data-hint="Скільки тактів у патерні (один такт = 4 долі = 16 кроків)"><span className="label">Такти</span>
           <select className="select tb-sel" value={project.bars} onChange={(e) => st.setBars(+e.target.value)} aria-label="Довжина патерна">{[1, 2, 4, 8, 16].map((b) => <option key={b} value={b}>{b}</option>)}</select>
         </label>
       </div>
 
       <div className="tb-group tb-right">
-        <button className="ibtn" onClick={st.undo} disabled={!canUndo} aria-label="Скасувати" title="Ctrl Z"><Undo2 size={18} /></button>
-        <button className="ibtn" onClick={st.redo} disabled={!canRedo} aria-label="Повторити" title="Ctrl Shift Z"><Redo2 size={18} /></button>
+        <button className="ibtn" onClick={st.undo} disabled={!canUndo} aria-label="Скасувати" data-hint="Скасувати (Ctrl+Z)"><Undo2 size={18} /></button>
+        <button className="ibtn" onClick={st.redo} disabled={!canRedo} aria-label="Повторити" data-hint="Повторити (Ctrl+Shift+Z)"><Redo2 size={18} /></button>
       </div>
     </div>
   );
 }
 
+const PANEL_BUTTONS = [
+  ['browser', 'Браузер', PanelLeft, 'Показати/сховати Браузер: інструменти, набори барабанів, заготовки'],
+  ['rack', 'Канали', Grid3x3, 'Показати/сховати Канали: сітка кроків барабанів і список інструментів'],
+  ['roll', 'Піано-ролл', Piano, 'Показати/сховати Піано-ролл: ноти мелодії, баса й акордів'],
+  ['playlist', 'Плейліст', ListMusic, 'Показати/сховати Плейліст: складання пісні з патернів'],
+  ['mixer', 'Мікшер', SlidersHorizontal, 'Показати/сховати Мікшер: гучність, панорама й ефекти кожного каналу'],
+];
+
 export default function StudioPage() {
-  const view = useStudio((s) => s.view);
-  const selected = useStudio((s) => s.selected);
   const project = useStudio((s) => s.project);
-  const pattern = project.patterns.find((p) => p.id === project.active) ?? project.patterns[0];
+  const panels = useStudio((s) => s.panels);
   const [gen, setGen] = useState(false);
   const [exp, setExp] = useState(false);
   const [lib, setLib] = useState(false);
   const [keys, setKeys] = useState(false);
   const [octave, setOctave] = useState(0);
+  const [hint, setHint] = useState('');
+  const [guide, setGuide] = useState(() => { try { return localStorage.getItem(GUIDE_KEY) !== 'done'; } catch { return true; } });
   const { noteOn, noteOff, midiName } = useLiveInput(octave);
   const st = useStudio.getState();
+
+  const closeGuide = () => { setGuide(false); try { localStorage.setItem(GUIDE_KEY, 'done'); } catch { /* private mode */ } };
 
   // The studio owns Space / letters while it is open; the global player shortcuts step aside
   useEffect(() => {
@@ -125,50 +145,65 @@ export default function StudioPage() {
   // keep the engine in step with the project
   useEffect(() => { getEngine()?.setProject(project); }, [project]);
 
+  // Hint bar (FL's bottom-left line): the nearest ancestor with data-hint explains itself
+  const showHint = (e) => { const el = e.target.closest?.('[data-hint]'); setHint(el?.dataset.hint ?? ''); };
+
   return (
-    <div className="studio">
+    <div className="studio" onMouseOver={showHint} onFocus={showHint} onMouseLeave={() => setHint('')}>
       <header className="studio-head">
         <div className="studio-title">
-          <input className="studio-name" value={project.name} onChange={(e) => st.setName(e.target.value)} aria-label="Назва проєкту" maxLength={60} />
-          <span className="mono muted studio-seed">зерно {project.seed}</span>
+          <input className="studio-name" value={project.name} onChange={(e) => st.setName(e.target.value)} aria-label="Назва проєкту" maxLength={60} data-hint="Назва вашого треку — клікніть і перейменуйте" />
+          <span className="mono muted studio-seed" data-hint="Зерно генератора: той самий код завжди дає ту саму заготовку">зерно {project.seed}</span>
         </div>
         <div className="studio-actions">
-          <button className="btn primary" onClick={() => setGen(true)}><Wand2 size={16} /> Генератор</button>
-          <button className="btn" onClick={() => setLib(true)}><FolderOpen size={16} /> Проєкти</button>
-          <button className="btn icon" onClick={() => st.saveLocal()} aria-label="Зберегти" title="Ctrl S"><Save size={16} /></button>
-          <button className="btn icon" onClick={() => { if (window.confirm('Почати з порожнього проєкту? Незбережене буде втрачено.')) st.newEmpty(); }} aria-label="Порожній проєкт" title="Порожній проєкт"><FilePlus2 size={16} /></button>
-          <button className="btn" onClick={() => setExp(true)}><Download size={16} /> Експорт</button>
+          <button className="btn primary" onClick={() => setGen(true)} data-hint="Автоматично написати ритм, бас, акорди й мелодію в обраному стилі"><Wand2 size={16} /> Генератор</button>
+          <button className="btn" onClick={() => setLib(true)} data-hint="Відкрити збережений проєкт"><FolderOpen size={16} /> Проєкти</button>
+          <button className="btn icon" onClick={() => st.saveLocal()} aria-label="Зберегти" data-hint="Зберегти проєкт на цьому пристрої (Ctrl+S)"><Save size={16} /></button>
+          <button className="btn icon" onClick={() => { if (window.confirm('Почати з порожнього проєкту? Незбережене буде втрачено.')) st.newEmpty(); }} aria-label="Порожній проєкт" data-hint="Новий порожній проєкт"><FilePlus2 size={16} /></button>
+          <button className="btn" onClick={() => setExp(true)} data-hint="Зберегти готовий трек як звуковий файл WAV"><Download size={16} /> Експорт</button>
         </div>
       </header>
 
       <Transport />
 
-      <div className="studio-views">
-        <div className="tabs" role="tablist">
-          {[['editor', 'Редактор', LayoutGrid], ['mixer', 'Мікшер', SlidersHorizontal], ['song', 'Пісня', ListMusic]].map(([id, label, Icon]) => (
-            <button key={id} role="tab" aria-selected={view === id} className={`tab ${view === id ? 'on' : ''}`} onClick={() => st.setView(id)}><Icon size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />{label}</button>
+      <div className="viewbar">
+        <div className="ptoggles" role="group" aria-label="Вікна студії">
+          {PANEL_BUTTONS.map(([id, label, Icon, h]) => (
+            <button key={id} className={`ptoggle ${panels[id] ? 'on' : ''}`} onClick={() => st.togglePanel(id)} aria-pressed={panels[id]} data-hint={h}>
+              <Icon size={14} />{label}
+            </button>
           ))}
         </div>
-        <div className="pats" aria-label="Патерни">
-          {project.patterns.map((p) => <button key={p.id} className={`chip sm ${project.active === p.id ? 'on' : ''}`} onClick={() => st.setActive(p.id)}>{p.name}</button>)}
-          <button className="chip sm" onClick={() => st.addPattern(false)} aria-label="Новий патерн">+</button>
+        <div className="pats" role="group" aria-label="Патерни">
+          <span className="label">Патерн</span>
+          {project.patterns.map((p) => <button key={p.id} className={`chip sm ${project.active === p.id ? 'on' : ''}`} onClick={() => st.setActive(p.id)} data-hint={`Патерн ${p.name}: окремий шматочок музики. Перемикайтесь між ними, щоб робити куплет, приспів тощо`}>{p.name}</button>)}
+          <button className="chip sm" onClick={() => st.addPattern(false)} aria-label="Новий патерн" data-hint="Додати новий порожній патерн">+</button>
         </div>
         <RegenBar />
+        <button className="ibtn guide-btn" onClick={() => setGuide((g) => !g)} aria-label="Швидкий старт" aria-pressed={guide} data-hint="Показати/сховати швидкий старт: як зробити трек за 4 кроки"><CircleHelp size={18} /></button>
       </div>
 
-      <div className="studio-body">
-        {view === 'editor' && (
-          <>
-            <TrackList />
-            <div className="studio-main">{selected === 'drums' || !project.tracks.some((t) => t.id === selected) ? <DrumGrid /> : <PianoRoll key={`${selected}-${pattern.id}`} />}</div>
-          </>
-        )}
-        {view === 'mixer' && <div className="studio-main full"><Mixer /></div>}
-        {view === 'song' && <div className="studio-main full"><SongView /></div>}
+      {guide && <QuickStart onClose={closeGuide} />}
+
+      <div className="workspace">
+        {panels.browser && <Browser onOpenProjects={() => setLib(true)} onOpenGenerator={() => setGen(true)} />}
+        <div className="stack">
+          {panels.rack && <ChannelRack />}
+          {panels.roll && <RollPanel />}
+          {panels.playlist && <SongView />}
+          {panels.mixer && <Panel id="mixer" title="Мікшер" sub="гучність, панорама, реверб і ехо кожного каналу" hint="Мікшер: кожен канал — своя доріжка. Повзунок — гучність, «Пан» — ліво/право, Реверб і Ехо — простір"><Mixer /></Panel>}
+          {!panels.rack && !panels.roll && !panels.playlist && !panels.mixer && (
+            <div className="spanel-empty big">
+              <Info size={26} />
+              <p>Усі вікна закриті. Відкрийте потрібні кнопками «Канали», «Піано-ролл», «Плейліст», «Мікшер» над цією областю.</p>
+              <button className="btn primary" onClick={() => { st.togglePanel('rack', true); st.togglePanel('roll', true); }}>Показати Канали й Піано-ролл</button>
+            </div>
+          )}
+        </div>
       </div>
 
       <footer className="studio-foot">
-        <button className={`btn sm ${keys ? 'on' : ''}`} onClick={() => setKeys((k) => !k)} aria-pressed={keys}><KbIcon size={14} /> Клавіатура</button>
+        <button className={`btn sm ${keys ? 'on' : ''}`} onClick={() => setKeys((k) => !k)} aria-pressed={keys} data-hint="Екранні клавіші піаніно — грайте мишею або пальцем на вибраному інструментальному каналі"><KbIcon size={14} /> Клавіатура</button>
         {keys && (
           <div className="chips">
             <button className="chip sm" onClick={() => setOctave((o) => Math.max(-2, o - 1))} aria-label="Октава вниз">−</button>
@@ -181,6 +216,8 @@ export default function StudioPage() {
         </span>
       </footer>
       {keys && <OnScreenKeys octaveShift={octave} noteOn={noteOn} noteOff={noteOff} />}
+
+      <div className="hintbar" role="status" aria-live="off"><Info size={13} /><span>{hint || DEFAULT_HINT}</span></div>
 
       {gen && <Generator onClose={() => setGen(false)} />}
       {exp && <ExportModal onClose={() => setExp(false)} />}

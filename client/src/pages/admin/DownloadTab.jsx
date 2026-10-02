@@ -134,7 +134,7 @@ export default function DownloadTab() {
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleFetchInfo(); };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 24 }}>
+    <div className="admin-split" style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 24 }}>
 
       {/* Left: URL input + form */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -265,7 +265,7 @@ export default function DownloadTab() {
                 <input className="form-input" value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="admin-pair" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group">
                   <label className="form-label">Виконавець</label>
                   <select className="form-select" value={form.artistId} onChange={e => setForm(p => ({ ...p, artistId: e.target.value }))}>
@@ -334,7 +334,7 @@ export default function DownloadTab() {
       <div>
         <div className="admin-card">
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Підтримувані платформи</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div className="admin-pair" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {PLATFORMS.map(p => (
               <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8, border: `1px solid color-mix(in oklab, var(--fg) 4%, transparent)` }}>
                 <span style={{ fontSize: 20 }}>{p.icon}</span>

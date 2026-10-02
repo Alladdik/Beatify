@@ -13,7 +13,7 @@ namespace BeatifyServer.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "admin")]
+[Authorize(Policy = "CanImport")]
 public class DownloadController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -238,6 +238,7 @@ public class DownloadController : ControllerBase
     // GET /api/download/artistsearch?name=...&platform=youtube|soundcloud&limit=50
     // Search for an artist's discography on external platforms
     [HttpGet("artistsearch")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> SearchArtistDiscography(
         [FromQuery] string name,
         [FromQuery] string platform = "youtube",

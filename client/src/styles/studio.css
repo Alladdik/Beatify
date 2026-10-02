@@ -26,23 +26,6 @@
 .studio-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-3) var(--s-4); padding-bottom: var(--s-3); }
 .studio-foot { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; padding: var(--s-3) var(--s-4); border-top: 1px solid var(--line); margin-top: auto; }
 
-/* tracks */
-.tracks { width: 248px; flex-shrink: 0; padding: 0 var(--s-3) var(--s-4) var(--s-4); display: flex; flex-direction: column; gap: 4px; }
-.tracks-head { display: flex; align-items: center; justify-content: space-between; padding: 0 0 6px; }
-.track { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-2); cursor: pointer; transition: background var(--dur-1), border-color var(--dur-1); }
-.track:hover { background: var(--hover); }
-.track.on { border-color: var(--accent-line); background: var(--accent-soft); }
-.track-ico { width: 20px; text-align: center; color: var(--fg-3); flex-shrink: 0; }
-.track.on .track-ico { color: var(--accent-text); }
-.track-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.track-name { font-weight: 560; font-size: 0.85rem; }
-.track-sub { font-size: 0.72rem; }
-.track-name-input { background: transparent; border: 0; outline: 0; font-weight: 560; font-size: 0.85rem; width: 100%; color: var(--fg); }
-.track-name-input:focus { border-bottom: 1px solid var(--accent-text); }
-.track-inst { background: transparent; border: 0; outline: 0; color: var(--fg-3); font-size: 0.72rem; padding: 0; width: 100%; cursor: pointer; }
-.track-inst option { background: var(--bg-1); color: var(--fg); }
-.track .hover-only { opacity: 0; transition: opacity var(--dur-1); }
-.track:hover .hover-only, .track:focus-within .hover-only { opacity: 1; }
 
 /* step sequencer */
 .grid-wrap { min-width: 0; }
@@ -114,11 +97,6 @@
 .osk-b:active { background: var(--accent); }
 
 @media (max-width: 860px) {
-  .tracks { width: auto; flex-direction: row; overflow-x: auto; padding: 0 var(--s-4) var(--s-3); }
-  .tracks-head { display: none; }
-  .track { min-width: 210px; }
-  .studio-body { flex-direction: column; }
-  .studio-main { padding: 0 var(--s-3) var(--s-4); width: 100%; }
   .seq-names { width: 128px; }
   .seq-name .hover-only { display: none; }
   .tb-sel.wide { width: 128px; }

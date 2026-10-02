@@ -14,10 +14,22 @@ _audio.crossOrigin = "anonymous";
 // iOS suspends AudioContext when PWA goes to background.
 // Resume it on every visibility/focus/pageshow event and periodically while playing.
 function _resumeCtx() {
-  if (_audioCtx && _audioCtx.state === 'suspended') {
+  // Safari reports 'interrupted' (not 'suspended') after a call, Siri or a screen lock
+  if (_audioCtx && (_audioCtx.state === 'suspended' || _audioCtx.state === 'interrupted')) {
     _audioCtx.resume().catch(() => {});
   }
 }
+
+// iPhone/iPad (incl. iPadOS posing as a Mac). On iOS the page keeps playing with the screen off
+// only when audio is a real "playback" session; Web Audio on a locked phone is the fragile part.
+const IS_IOS = typeof navigator !== 'undefined' &&
+  (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+// Tells Safari this is music (plays with the silent switch on and keeps going when locked / backgrounded).
+function _setAudioSession() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older Safari / other browsers */ }
+}
+_setAudioSession();
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') _resumeCtx();
@@ -588,7 +600,7 @@ function initAudioContext() {
 
   // Auto-resume if iOS suspends the context while audio is playing
   _audioCtx.addEventListener('statechange', () => {
-    if (_audioCtx.state === 'suspended' && !_audio.paused) {
+    if ((_audioCtx.state === 'suspended' || _audioCtx.state === 'interrupted') && !_audio.paused) {
       _audioCtx.resume().catch(() => {});
     }
   });
@@ -925,15 +937,41 @@ async function _resolveSource(track) {
   return tracksApi.streamUrl(track.id);
 }
 
+// Stream URL of the next online track, resolved ahead of time: after `ended` with the screen off
+// a network round-trip before play() can cost us the browser's permission to start audio.
+const _prefetched = new Map();
+let _prefetchingFor = null;
+function _prefetchNext() {
+  const { queue, queueIndex, isShuffle } = usePlayerStore.getState();
+  if (isShuffle) return;
+  const idx = queueIndex + 1;
+  const nxt = queue[idx];
+  if (!nxt || !isExternal(nxt)) return;
+  const key = trackKey(nxt, idx);
+  if (_prefetched.has(key) || _prefetchingFor === key) return;
+  _prefetchingFor = key;
+  _resolveExternal(nxt).then((u) => _prefetched.set(key, u)).catch(() => {}).finally(() => { _prefetchingFor = null; });
+}
+
 async function _resolveExternal(track) {
   const url = track.externalUrl || track.webpage_url;
   const res = await externalSearchApi.getPreviewUrl(url);
   return res.data.streamUrl;
 }
 
+// Plain <audio> keeps playing with the screen off everywhere. Routing it through Web Audio (EQ, 8D, reverb)
+// is what iOS may silence on lock — so on iPhone the graph is only built when an effect is actually in use.
+function _effectsWanted() {
+  const s = usePlayerStore.getState();
+  return !!(s.is8DActive || s.isPerfectAudioActive || s.isAutoEqActive || s.isLofiActive || s.isKaraokeActive ||
+    s.isSubBassActive || s.isVocalBoostActive || s.isDouble8DActive || s.isBassRumbleActive || s.isNightcoreActive ||
+    s.isManualPanning || s.eqBands.some((v) => v !== 0));
+}
+
 function _prepareContext() {
-  initAudioContext();
-  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+  _setAudioSession();
+  if (!IS_IOS || _effectsWanted()) initAudioContext();
+  _resumeCtx();
 }
 
 export const usePlayerStore = create(
@@ -987,7 +1025,8 @@ export const usePlayerStore = create(
         try {
           let src;
           if (isExternal(track)) {
-            src = await _resolveExternal(track);
+            src = _prefetched.get(trackKey(track, index)) ?? await _resolveExternal(track);
+            _prefetched.delete(trackKey(track, index));
           } else {
             const cached = useOfflineStore.getState().isDownloaded(track.id);
             src = cached ? await _resolveSource(track) : tracksApi.streamUrl(track.id);
@@ -1356,6 +1395,8 @@ _audio.addEventListener('timeupdate', () => {
     _loggedPlay = true;
     if (useAuthStore.getState().token) tracksApi.logPlay(s.currentTrack.id, Math.round(t)).catch(() => {});
   }
+
+  if (_audio.duration > 0 && _audio.duration - t < 25) _prefetchNext();
 
   // Sleep timer
   if (s.sleepTimer && Date.now() >= s.sleepTimer) {

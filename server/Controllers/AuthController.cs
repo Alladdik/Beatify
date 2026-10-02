@@ -61,7 +61,7 @@ public class AuthController : ControllerBase
         await _db.SaveChangesAsync();
 
         var token = _jwt.GenerateToken(user);
-        return Ok(new AuthResponseDto(token, new UserDto(user.Id, user.Email, user.Name, user.Role, user.AvatarPath, null)));
+        return Ok(new AuthResponseDto(token, user.ToDto(null)));
     }
 
     [HttpPost("login")]
@@ -71,10 +71,11 @@ public class AuthController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
         if (user == null || string.IsNullOrEmpty(dto.Password) || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
             return Unauthorized(new { message = "Невірний email або пароль" });
+        if (user.IsBlocked) return StatusCode(403, new { message = "Акаунт заблоковано адміністратором" });
 
         var artist = await _db.Artists.FirstOrDefaultAsync(a => a.UserId == user.Id);
         var token = _jwt.GenerateToken(user);
-        return Ok(new AuthResponseDto(token, new UserDto(user.Id, user.Email, user.Name, user.Role, user.AvatarPath, artist?.Id)));
+        return Ok(new AuthResponseDto(token, user.ToDto(artist?.Id)));
     }
 
     [HttpGet("me")]
@@ -85,6 +86,6 @@ public class AuthController : ControllerBase
         var user = await _db.Users.FindAsync(id);
         if (user == null) return Unauthorized();
         var artist = await _db.Artists.FirstOrDefaultAsync(a => a.UserId == user.Id);
-        return Ok(new UserDto(user.Id, user.Email, user.Name, user.Role, user.AvatarPath, artist?.Id));
+        return Ok(user.ToDto(artist?.Id));
     }
 }

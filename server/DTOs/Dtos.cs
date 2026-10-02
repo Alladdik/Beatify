@@ -6,12 +6,13 @@ public record LoginDto(string Email, string Password);
 public record AuthResponseDto(string Token, UserDto User);
 
 // User
-public record UserDto(int Id, string Email, string Name, string Role, string? AvatarPath, int? ArtistId);
+public record UserDto(int Id, string Email, string Name, string Role, string? AvatarPath, int? ArtistId, bool CanUpload = false, bool CanImport = false, bool UploadRequested = false, bool UploadDenied = false);
+public record ChangePasswordDto(string CurrentPassword, string NewPassword);
 public record UpdateUserDto(string? Name, string? Email);
 
 // Artist
 public record ArtistDto(int Id, string Name, string? ImagePath, string? Bio, string? Genre, int MonthlyListeners, int TrackCount, List<string>? Covers = null);
-public record CreateArtistDto(string Name, string? Bio, string? Genre);
+public record CreateArtistDto(string Name, string? Bio, string? Genre, int? UserId = null);
 
 // Album
 public record AlbumDto(int Id, string Title, int ArtistId, string ArtistName, string? CoverPath, int Year, string? Genre, int TrackCount);

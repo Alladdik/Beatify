@@ -1,7 +1,7 @@
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   House, Search, Compass, Library, Users, MicVocal, Gamepad2, Piano, CloudDownload,
-  Heart, Plus, Sun, Moon, Monitor, Shield, LogOut, Download, Command, LogIn, Loader2,
+  Heart, Plus, Sun, Moon, Monitor, Shield, LogOut, Download, Command, LogIn, Loader2, Link2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Cover from './ui/Cover';
@@ -122,11 +122,14 @@ export default function Rail() {
       <div className="rail-foot">
         {!installed && (
           <button className="rail-install" onClick={install} title="Встановити Beatify як застосунок з ярликом на робочому столі">
-            <Download size={17} /><span>Встановити на робочий стіл</span>
+            <Download size={17} /><span>Ярлик на робочий стіл</span>
           </button>
         )}
         <div className="rail-tools">
           <button className="tool" onClick={cycle} title={themeLabel} aria-label={themeLabel}><ThemeIcon size={17} /></button>
+          {user?.canImport && user?.role !== 'admin' && (
+            <NavLink to="/import" className={({ isActive }) => `tool ${isActive ? 'active' : ''}`} title="Імпорт за посиланням" aria-label="Імпорт за посиланням"><Link2 size={17} /></NavLink>
+          )}
           {user?.role === 'admin' && (
             <NavLink to="/admin" className={({ isActive }) => `tool ${isActive ? 'active' : ''}`} title="Адмінка" aria-label="Адмінка"><Shield size={17} /></NavLink>
           )}

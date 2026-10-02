@@ -9,6 +9,14 @@ import { randomSeed } from './music';
 
 const DRAFT_KEY = 'beatify_studio_draft';
 const LIB_KEY = 'beatify_studio_projects';
+const PANELS_KEY = 'beatify_studio_panels';
+
+// FL-style workspace: which panels are open. Phones start with the essentials only.
+function loadPanels() {
+  const narrow = typeof window !== 'undefined' && window.innerWidth < 860;
+  const def = { browser: !narrow, rack: true, roll: true, playlist: false, mixer: false };
+  try { return { ...def, ...JSON.parse(localStorage.getItem(PANELS_KEY)) }; } catch { return def; }
+}
 
 // ── one engine for the page's lifetime (created on the first user gesture) ────────────────────────
 let engine = null;
@@ -37,18 +45,21 @@ const writeLibrary = (list) => { try { localStorage.setItem(LIB_KEY, JSON.string
 const HISTORY = 80;
 const patchActive = (p, fn) => ({ ...p, patterns: p.patterns.map((x) => (x.id === p.active ? fn(x) : x)) });
 
+const INITIAL_PROJECT = loadDraft() ?? generateProject({ genre: 'lofi', seed: randomSeed() });
+
 export const useStudio = create((set, get) => ({
-  project: loadDraft() ?? generateProject({ genre: 'lofi', seed: randomSeed() }),
+  project: INITIAL_PROJECT,
   past: [],
   future: [],
   playing: false,
   step: -1,
-  selected: 'drums',          // 'drums' | track id
+  selected: INITIAL_PROJECT.tracks[1]?.id ?? INITIAL_PROJECT.tracks[0]?.id ?? 'drums', // 'drums' | track id — open on a melodic channel so the Piano roll shows notes at once
   tool: 'draw',               // 'draw' | 'erase'
   snap: 1,                    // steps (1 = 1/16)
   recording: false,
   metronome: false,
-  view: 'editor',             // 'editor' | 'mixer' | 'song'
+  view: 'editor',             // legacy; the workspace now uses `panels`
+  panels: loadPanels(),       // { browser, rack, roll, playlist, mixer }
   rendering: 0,               // 0 idle, 0–1 progress
   loop: 2,
 
@@ -154,6 +165,11 @@ export const useStudio = create((set, get) => ({
   setTool: (tool) => set({ tool }),
   setSnap: (snap) => set({ snap }),
   setView: (view) => set({ view }),
+  togglePanel: (id, on) => {
+    const panels = { ...get().panels, [id]: on ?? !get().panels[id] };
+    set({ panels });
+    try { localStorage.setItem(PANELS_KEY, JSON.stringify(panels)); } catch { /* quota */ }
+  },
   setLoop: (loop) => set({ loop }),
   setRecording: (recording) => set({ recording }),
   addTrack: (inst) => {

@@ -87,6 +87,8 @@ export const artistsApi = {
   getAlbums: (id) => api.get(`/artists/${id}/albums`),
   getSimilar: (id) => api.get(`/artists/${id}/similar`),
   create: (formData) => api.post('/artists', formData, multipart),
+  // the signed-in artist edits their own page
+  updateMine: (formData) => api.put('/artists/mine', formData, multipart),
 };
 
 // Albums
@@ -171,6 +173,20 @@ export const spotifyApi = {
 export const usersApi = {
   updateMe: (data) => api.put('/users/me', data),
   becomeArtist: () => api.post('/users/become-artist'),
+  changePassword: (currentPassword, newPassword) => api.post('/users/me/password', { currentPassword, newPassword }),
+  uploadAvatar: (file) => { const fd = new FormData(); fd.append('file', file); return api.post('/users/me/avatar', fd, multipart); },
+  removeAvatar: () => api.delete('/users/me/avatar'),
+  requestUpload: () => api.post('/users/me/request-upload'),
+};
+
+// Admin: who may sign in, upload, import; artist pages
+export const adminUsersApi = {
+  list: (q = '') => api.get(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  update: (id, patch) => api.put(`/admin/users/${id}`, patch),
+  resetPassword: (id, newPassword) => api.post(`/admin/users/${id}/reset-password`, { newPassword: newPassword || null }),
+  makeArtist: (id, artistId) => api.post(`/admin/users/${id}/artist`, { artistId: artistId || null }),
+  unlinkArtist: (id) => api.delete(`/admin/users/${id}/artist`),
+  remove: (id) => api.delete(`/admin/users/${id}`),
 };
 
 export { fileUrl, streamUrl, API_ORIGIN as apiBase, API_URL };

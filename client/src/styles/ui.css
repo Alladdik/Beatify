@@ -262,3 +262,11 @@
 .form-input:focus { outline: none; border-color: var(--accent-text); }
 .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .form-label { font-size: var(--t-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-3); }
+
+/* ── Touch devices (iPhone / Android) ── */
+@media (pointer: coarse) {
+  /* iOS Safari zooms the whole page when a field under 16px gets focus */
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='file']), select, textarea { font-size: max(16px, 1em); }
+}
+html { touch-action: manipulation; }   /* no double-tap zoom, no 300ms tap delay */
+.sheet { overscroll-behavior: contain; } /* pull-to-refresh / bounce should not drag the whole app */

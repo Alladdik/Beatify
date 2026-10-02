@@ -9,7 +9,7 @@ namespace BeatifyServer.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "admin")]
+[Authorize(Policy = "CanImport")]
 public class SpotifyController : ControllerBase
 {
     private readonly IHttpClientFactory _http;

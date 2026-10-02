@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { useStudio } from '../store';
 import { GENRES } from '../presets';
 import { hashSeed } from '../music';
-import { tracksApi, usersApi, authApi, errMsg } from '../../api';
+import { tracksApi, usersApi, errMsg } from '../../api';
 import { useAuthStore } from '../../store/authStore';
 
 /** A specimen-style cover drawn from the project: one giant letter, the name, and the coordinates. */
@@ -43,6 +43,7 @@ export default function ExportModal({ onClose }) {
   const [coverUrl, setCoverUrl] = useState(null);
   const [busy, setBusy] = useState('');
   const [done, setDone] = useState(null);
+  const [rights, setRights] = useState(false);
   const coverBlob = useRef(null);
 
   const steps = project.bars * 16 * ((project.mode === 'song' && project.song.length) ? project.song.length : 1) * loops;
@@ -73,8 +74,8 @@ export default function ExportModal({ onClose }) {
     toast.success(`WAV збережено · ${(out.blob.size / 1024 / 1024).toFixed(1)} МБ`);
   };
 
-  const becomeArtist = async () => {
-    try { await usersApi.becomeArtist(); const { data } = await authApi.me(); login(token, data); toast.success('Тепер ви виконавець'); }
+  const requestUpload = async () => {
+    try { const { data } = await usersApi.requestUpload(); login(token, data); toast.success('Запит надіслано адміністратору'); }
     catch (e) { toast.error(errMsg(e, 'Не вдалося')); }
   };
 
@@ -124,9 +125,11 @@ export default function ExportModal({ onClose }) {
               </div>
             ) : !user ? (
               <div className="note">Щоб публікувати, <Link to="/login" className="accent" onClick={onClose}>увійдіть</Link> у акаунт.</div>
-            ) : !user.artistId ? (
+            ) : !user.canUpload ? (
               <div className="note" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <Mic size={18} className="accent" /><span style={{ flex: 1 }}>Публікувати можуть виконавці. Це одна кнопка.</span><button className="btn primary sm" onClick={becomeArtist}>Стати виконавцем</button>
+                <Mic size={18} className="accent" />
+                <span style={{ flex: 1, minWidth: 200 }}>{user.uploadRequested ? 'Запит надіслано — публікація стане доступною, щойно адміністратор його схвалить. WAV можна завантажити вже зараз.' : 'Публікувати в каталог можна за дозволом адміністратора. WAV можна завантажити і без нього.'}</span>
+                {!user.uploadRequested && <button className="btn primary sm" onClick={requestUpload}>Попросити дозвіл</button>}
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: '132px minmax(0, 1fr)', gap: 'var(--s-4)', alignItems: 'start' }}>
@@ -134,7 +137,8 @@ export default function ExportModal({ onClose }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
                   <div className="field"><label htmlFor="pub-title">Назва</label><input id="pub-title" className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} /></div>
                   <div className="field"><label htmlFor="pub-genre">Жанр</label><input id="pub-genre" className="input" value={genre} maxLength={40} onChange={(e) => setGenre(e.target.value)} /></div>
-                  <div><button className="btn primary" onClick={publish} disabled={!!busy || !title.trim()}>{busy === 'pub' ? <><Loader2 size={16} className="spin" /> Збираємо й завантажуємо…</> : <><Upload size={16} /> Опублікувати</>}</button></div>
+                  <label className="consent"><input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} /><span>Це моя музика. Я розумію, що трек стане доступним усім слухачам, а адміністратор може його прибрати.</span></label>
+                  <div><button className="btn primary" onClick={publish} disabled={!!busy || !title.trim() || !rights}>{busy === 'pub' ? <><Loader2 size={16} className="spin" /> Збираємо й завантажуємо…</> : <><Upload size={16} /> Опублікувати</>}</button></div>
                 </div>
               </div>
             )}

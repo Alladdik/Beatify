@@ -70,3 +70,5 @@ deploy/.env
 .impeccable/mocks/
 .impeccable/build/
 .impeccable/config.local.json
+
+vps-deploy/config.env

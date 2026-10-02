@@ -41,6 +41,7 @@ const DiscoveryPage = lazy(() => import('./pages/DiscoveryPage'));
 const LibraryPage = lazy(() => import('./pages/LibraryPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const MorePage = lazy(() => import('./pages/MorePage'));
+const ImportPage = lazy(() => import('./pages/ImportPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const TrackSharePage = lazy(() => import('./pages/TrackSharePage'));
 const MixPage = lazy(() => import('./pages/MixPage'));
@@ -49,11 +50,14 @@ const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
 });
 
-function ProtectedRoute({ children, adminOnly = false }) {
-  const { user, isAuthenticated } = useAuthStore();
+function ProtectedRoute({ children, adminOnly = false, needs = null }) {
+  const { user, isAuthenticated, verified } = useAuthStore();
   const location = useLocation();
   if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  // rights may have changed since the cached user was saved — wait for the server's answer before turning anyone away
+  if ((adminOnly || needs) && !verified) return <PageLoader />;
   if (adminOnly && user?.role !== 'admin') return <Navigate to="/" replace />;
+  if (needs && user?.role !== 'admin' && !user?.[needs]) return <Navigate to="/profile" replace />;
   return children;
 }
 
@@ -136,6 +140,7 @@ function AppLayout() {
               <Route path="/karaoke" element={<ProtectedRoute><KaraokePage /></ProtectedRoute>} />
               <Route path="/studio" element={<StudioPage />} />
               <Route path="/more" element={<MorePage />} />
+              <Route path="/import" element={<ProtectedRoute needs="canImport"><ImportPage /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/" replace />} />

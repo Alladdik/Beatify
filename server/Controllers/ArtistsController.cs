@@ -84,21 +84,57 @@ public class ArtistsController : ControllerBase
             imagePath = fileName;
         }
 
-        var artist = new Artist { Name = dto.Name, Bio = dto.Bio, Genre = dto.Genre, ImagePath = imagePath };
+        int? ownerId = null;
+        if (dto.UserId is > 0)
+        {
+            if (!await _db.Users.AnyAsync(u => u.Id == dto.UserId)) return BadRequest(new { message = "Користувача не знайдено" });
+            if (await _db.Artists.AnyAsync(a => a.UserId == dto.UserId)) return BadRequest(new { message = "У цього користувача вже є сторінка виконавця" });
+            ownerId = dto.UserId;
+        }
+        var artist = new Artist { Name = dto.Name, Bio = dto.Bio, Genre = dto.Genre, ImagePath = imagePath, UserId = ownerId };
         _db.Artists.Add(artist);
         await _db.SaveChangesAsync();
         return CreatedAtAction(nameof(GetById), new { id = artist.Id },
             new ArtistDto(artist.Id, artist.Name, artist.ImagePath, artist.Bio, artist.Genre, 0, 0));
     }
 
+    // PUT /api/artists/mine — a user edits their own artist page (name, bio, genre, photo)
+    [HttpPut("mine")]
+    [Authorize]
+    public async Task<IActionResult> UpdateMine([FromForm] CreateArtistDto dto, IFormFile? imageFile)
+    {
+        var uid = UserId;
+        var own = uid == null ? null : await _db.Artists.FirstOrDefaultAsync(a => a.UserId == uid);
+        if (own == null) return NotFound(new { message = "У вас ще немає сторінки виконавця" });
+        return await Update(own.Id, dto, imageFile, adminCall: false);
+    }
+
     [HttpPut("{id}")]
     [Authorize(Roles = "admin")]
-    public async Task<IActionResult> Update(int id, [FromForm] CreateArtistDto dto, IFormFile? imageFile)
+    public Task<IActionResult> Update(int id, [FromForm] CreateArtistDto dto, IFormFile? imageFile) => Update(id, dto, imageFile, adminCall: true);
+
+    [NonAction]
+    private async Task<IActionResult> Update(int id, CreateArtistDto dto, IFormFile? imageFile, bool adminCall)
     {
         var artist = await _db.Artists.FindAsync(id);
         if (artist == null) return NotFound();
 
-        artist.Name = dto.Name;
+        var name = (dto.Name ?? "").Trim();
+        if (name.Length < 1 || name.Length > 100) return BadRequest(new { message = "Назва виконавця: від 1 до 100 символів" });
+        if (imageFile != null && Path.GetExtension(imageFile.FileName).ToLower() is not (".jpg" or ".jpeg" or ".png" or ".webp"))
+            return BadRequest(new { message = "Фото має бути jpg, png або webp" });
+        if (adminCall && dto.UserId.HasValue)
+        {
+            if (dto.UserId == 0) artist.UserId = null;
+            else
+            {
+                if (!await _db.Users.AnyAsync(u => u.Id == dto.UserId)) return BadRequest(new { message = "Користувача не знайдено" });
+                if (await _db.Artists.AnyAsync(a => a.UserId == dto.UserId && a.Id != id)) return BadRequest(new { message = "У цього користувача вже є сторінка виконавця" });
+                artist.UserId = dto.UserId;
+            }
+        }
+
+        artist.Name = name;
         artist.Bio = dto.Bio;
         artist.Genre = dto.Genre;
 

@@ -34,6 +34,8 @@ function getInitialAuth() {
 
 export const useAuthStore = create((set, get) => ({
   ...getInitialAuth(),
+  // false until the server has confirmed the stored session (roles / permissions may have changed since last visit)
+  verified: false,
 
   login: (token, user) => {
     localStorage.setItem('beatify_token', token);
@@ -60,7 +62,7 @@ export const useAuthStore = create((set, get) => ({
   // ONLY logout on definitive 401. Any other error (404, 500, network) → keep session.
   verifyToken: async () => {
     const { token, logout } = get();
-    if (!token) return;
+    if (!token) { set({ verified: true }); return; }
     try {
       const res = await fetch(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -74,6 +76,8 @@ export const useAuthStore = create((set, get) => ({
       }
     } catch {
       // Network error or server down, do not logout
+    } finally {
+      set({ verified: true });
     }
   },
 }));

@@ -229,3 +229,18 @@ mark { background: transparent; color: var(--accent-text); font-weight: 600; }
 .more-sub { font-size: 0.78rem; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .more-chev { color: var(--fg-4); flex-shrink: 0; }
 .avatar.lg { width: 44px; height: 44px; font-size: 1rem; }
+
+/* Profile → settings */
+.settings-photo { display: flex; align-items: center; gap: var(--s-4); flex-wrap: wrap; }
+.settings-photo .avatar { flex-shrink: 0; }
+.settings-photo-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.field-err { color: var(--danger); font-size: 0.75rem; }
+.rights { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.rights-row { display: flex; align-items: center; gap: var(--s-3); padding: 12px 0; border-bottom: 1px solid var(--line); }
+.rights-ico { color: var(--accent-text); flex-shrink: 0; }
+.rights-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rights-text b { font-size: 0.88rem; font-weight: 560; }
+.rights-text small { font-size: 0.74rem; color: var(--fg-3); line-height: 1.35; }
+.rights-state { flex-shrink: 0; display: flex; align-items: center; }
+.rights-state .tag { display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 480px) { .rights-row { flex-wrap: wrap; } .rights-state { margin-left: 30px; } }

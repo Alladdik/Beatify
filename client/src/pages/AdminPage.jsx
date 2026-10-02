@@ -1,13 +1,14 @@
 import { useState, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { artistsApi, albumsApi, tracksApi, externalSearchApi, fileUrl } from '../api';
+import { artistsApi, albumsApi, tracksApi, externalSearchApi, adminUsersApi, fileUrl } from '../api';
 import {
   Music, User, Disc3, Trash2, Upload, Check, ChevronRight, Image,
   FileMusic, Mic2, Download, Pencil, X, Save, Search, Loader2, Camera,
-  Wand2, Cloud, Telescope,
+  Wand2, Cloud, Telescope, Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DownloadTab from './admin/DownloadTab';
+import UsersTab from './admin/UsersTab';
 import SpotifyImportTab from './admin/SpotifyImportTab';
 import SoundCloudTab from './admin/SoundCloudTab';
 import ArtistHunterTab from './admin/ArtistHunterTab';
@@ -150,7 +151,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
           </div>
 
           {/* Body */}
-          <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', flex: 1, overflow: 'hidden' }}>
+          <div className="admin-modal-body" style={{ display: 'grid', gridTemplateColumns: '300px 1fr', flex: 1, overflow: 'hidden' }}>
 
             {/* LEFT: form */}
             <div style={{ padding: 24, overflowY: 'auto', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -322,7 +323,13 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
 
 // ── TAB: Artist ──────────────────────────────────────────────────────────────
 function ArtistTab({ artists, qc }) {
-  const [form, setForm] = useState({ name: '', bio: '', genre: '' });
+  const [form, setForm] = useState({ name: '', bio: '', genre: '', userId: '' });
+  // users who can still be made the owner of an artist page
+  const { data: owners = [] } = useQuery({
+    queryKey: ['adminUsers', ''],
+    queryFn: () => adminUsersApi.list('').then(r => r.data),
+  });
+  const freeOwners = owners.filter(u => !u.artistId);
   const [img, setImg] = useState(null);
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
@@ -334,12 +341,13 @@ function ArtistTab({ artists, qc }) {
     if (img) fd.append('imageFile', img);
     await artistsApi.create(fd);
     qc.invalidateQueries(['artists']);
-    setForm({ name: '', bio: '', genre: '' }); setImg(null);
+    setForm({ name: '', bio: '', genre: '', userId: '' }); setImg(null);
+    qc.invalidateQueries(['adminUsers']);
     toast.success('Виконавця додано!');
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+    <div className="admin-split" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
       <div className="admin-card">
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>Новий виконавець</h3>
         <form onSubmit={submit}>
@@ -350,6 +358,13 @@ function ArtistTab({ artists, qc }) {
           </Field>
           <Field label="Фото виконавця">
             <DropZone label="Завантажити фото" icon={Image} accept="image/*" file={img} onFile={setImg} />
+          </Field>
+          <Field label="Власник сторінки (необов’язково)">
+            <select className="form-input" value={form.userId} onChange={set('userId')}>
+              <option value="">Без власника — керує адмін</option>
+              {freeOwners.map(u => <option key={u.id} value={u.id}>{u.name} · {u.email}</option>)}
+            </select>
+            <small style={{ color: 'var(--text-muted)', fontSize: 12 }}>Власник зможе сам редагувати цю сторінку у своєму профілі.</small>
           </Field>
           <button className="btn btn-primary w-full" style={{ justifyContent: 'center', marginTop: 4 }} type="submit">
             <User size={16} /> Додати виконавця
@@ -399,7 +414,7 @@ function AlbumTab({ artists, albums, qc }) {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+    <div className="admin-split" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
       <div className="admin-card">
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>Новий альбом</h3>
         <form onSubmit={submit}>
@@ -532,13 +547,13 @@ function TrackTab({ artists, albums, tracks, qc }) {
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
+      <div className="admin-split" style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
         {/* Upload form — fixed height, scrollable */}
         <div className="admin-card" style={{ height: PANEL_H, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, flexShrink: 0 }}>Завантажити трек</h3>
           <form onSubmit={submit} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, paddingRight: 4 }}>
             <Field label="Назва *"><input className="form-input" value={form.title} onChange={set('title')} placeholder="Назва треку" /></Field>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="admin-pair" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <Field label="Виконавець">
                 <select className="form-select" value={form.artistId} onChange={e => setForm(p => ({ ...p, artistId: e.target.value, albumId: '' }))}>
                   <option value="">Без виконавця</option>
@@ -560,7 +575,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
               </label>
               {form.duration > 0 && <span className="pill">⏱ {fmt(form.duration)}</span>}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <div className="admin-pair" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
               <Field label="Медіафайл *">
                 <DropZone label="MP3 / WAV / FLAC" icon={FileMusic} accept="audio/*,video/*" file={audio} onFile={handleAudio} />
               </Field>
@@ -698,6 +713,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
 
 // ── MAIN ADMIN PAGE ──────────────────────────────────────────────────────────
 const TABS = [
+  { id: 'users',         label: 'Користувачі',  icon: Users },
   { id: 'artist',        label: 'Виконавці',    icon: Mic2 },
   { id: 'album',         label: 'Альбоми',      icon: Disc3 },
   { id: 'track',         label: 'Треки',        icon: Music },
@@ -708,7 +724,7 @@ const TABS = [
 ];
 
 export default function AdminPage() {
-  const [tab, setTab] = useState('artist');
+  const [tab, setTab] = useState('users');
   const qc = useQueryClient();
 
   const { data: artists = [] } = useQuery({ queryKey: ['artists'], queryFn: () => artistsApi.getAll().then(r => r.data) });
@@ -742,6 +758,7 @@ export default function AdminPage() {
       {/* Content */}
       <div>
         <div className="animate-in">
+          {tab === 'users'      && <UsersTab />}
           {tab === 'artist'     && <ArtistTab   artists={artists} qc={qc} />}
           {tab === 'album'      && <AlbumTab    artists={artists} albums={albums} qc={qc} />}
           {tab === 'track'      && <TrackTab    artists={artists} albums={albums} tracks={tracks} qc={qc} />}

@@ -29,7 +29,7 @@ fi
 
 # 3. Збірка і запуск
 echo "[*] Збираю та запускаю контейнери (перший раз це кілька хвилин)..."
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+YTDLP_REFRESH=$(date +%F) docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 
 DOMAIN_NOW=$(grep -E '^DOMAIN=' deploy/.env | cut -d= -f2-)
 echo ""

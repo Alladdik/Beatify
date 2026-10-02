@@ -21,9 +21,14 @@ RUN dotnet publish -c Release -o /publish --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates \
- && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
- && chmod a+rx /usr/local/bin/yt-dlp \
  && rm -rf /var/lib/apt/lists/*
+
+# YouTube changes often and a stale yt-dlp answers 403. The update scripts pass today's date,
+# so a rebuild on a new day re-downloads the latest release instead of reusing the cached layer.
+ARG YTDLP_REFRESH=0
+RUN echo "yt-dlp refresh: ${YTDLP_REFRESH}" \
+ && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
+ && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
 COPY --from=server-build /publish ./

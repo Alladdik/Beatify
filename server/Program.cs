@@ -1,15 +1,18 @@
 using System.IO.Compression;
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using BeatifyServer.Data;
 using BeatifyServer.Hubs;
 using BeatifyServer.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 
@@ -65,11 +68,31 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 if (!string.IsNullOrEmpty(token) && ctx.HttpContext.Request.Path.StartsWithSegments("/hubs"))
                     ctx.Token = token;
                 return Task.CompletedTask;
+            },
+            // A token lives 30 days, but admins change roles and block accounts today:
+            // trust the database for role / blocked state, not the claim baked into the token.
+            OnTokenValidated = async ctx =>
+            {
+                if (!int.TryParse(ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier), out var uid)) { ctx.Fail("bad token"); return; }
+                var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var cache = ctx.HttpContext.RequestServices.GetRequiredService<IMemoryCache>();
+                var info = await BeatifyServer.Services.Perm.LoadAsync(db, cache, uid);
+                if (info == null || info.IsBlocked) { ctx.Fail("account disabled"); return; }
+                if (ctx.Principal?.Identity is ClaimsIdentity identity)
+                {
+                    foreach (var c in identity.FindAll(ClaimTypes.Role).ToList()) identity.RemoveClaim(c);
+                    identity.AddClaim(new Claim(ClaimTypes.Role, info.Role));
+                }
             }
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(o =>
+{
+    o.AddPolicy(BeatifyServer.Services.Perm.Upload, p => p.RequireAuthenticatedUser().AddRequirements(new BeatifyServer.Services.PermissionRequirement(BeatifyServer.Services.Perm.Upload)));
+    o.AddPolicy(BeatifyServer.Services.Perm.Import, p => p.RequireAuthenticatedUser().AddRequirements(new BeatifyServer.Services.PermissionRequirement(BeatifyServer.Services.Perm.Import)));
+});
+builder.Services.AddScoped<IAuthorizationHandler, BeatifyServer.Services.PermissionHandler>();
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<RecommendationService>();
 builder.Services.AddScoped<LyricsService>();

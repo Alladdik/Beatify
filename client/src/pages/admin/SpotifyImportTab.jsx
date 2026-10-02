@@ -41,7 +41,7 @@ export default function SpotifyImportTab() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+    <div className="admin-split" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
       {/* Left: Configuration */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="admin-card">

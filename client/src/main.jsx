@@ -10,6 +10,7 @@ import './styles/pages.css';
 import './styles/panels.css';
 import './styles/features.css';
 import './styles/studio.css';
+import './styles/studio-workspace.css';
 import './styles/legacy.css';
 import './store/installStore'; // must listen before Chrome fires beforeinstallprompt
 import App from './App.jsx';
