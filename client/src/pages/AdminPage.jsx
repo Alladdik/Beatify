@@ -1,10 +1,10 @@
-import React, { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { artistsApi, albumsApi, tracksApi, externalSearchApi, fileUrl } from '../api';
 import {
-  Shield, Music, User, Disc3, Trash2, Upload, Check, ChevronRight, Image,
+  Music, User, Disc3, Trash2, Upload, Check, ChevronRight, Image,
   FileMusic, Mic2, Download, Pencil, X, Save, Search, Loader2, Camera,
-  Wand2, Star, ChevronDown, Filter, Cloud, Telescope,
+  Wand2, Cloud, Telescope,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DownloadTab from './admin/DownloadTab';
@@ -83,7 +83,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
         setForm(p => ({ ...p, lyrics: d.lyrics }));
         setLyricsSource(d.source || 'lrclib');
         const synced = d.lyrics.startsWith('[');
-        toast.success(`Знайдено${synced ? ' ⚡ синхронізований' : ''} текст (${d.source || 'lrclib'})`);
+        toast.success(`Знайдено${synced ? ' синхронізований' : ''} текст (${d.source || 'lrclib'})`);
       } else if (d.found && d.options?.length) {
         setLyricsOptions(d.options);
         toast('Знайдено кілька варіантів — оберіть:', { icon: '🎵' });
@@ -144,7 +144,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
                 <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{track.title}</p>
               </div>
             </div>
-            <button onClick={onClose} style={{ background: 'rgba(255,255,255,.06)', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex' }}>
+            <button onClick={onClose} style={{ background: 'color-mix(in oklab, var(--fg) 6%, transparent)', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex' }}>
               <X size={18} />
             </button>
           </div>
@@ -237,8 +237,8 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
                       {fetchingLyrics ? 'Шукаємо...' : 'Авто-пошук'}
                     </button>
                     {lyricsSource && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 20, background: form.lyrics?.startsWith('[') ? 'rgba(48,209,88,0.15)' : 'rgba(255,255,255,0.07)', color: form.lyrics?.startsWith('[') ? 'var(--accent)' : 'var(--text-muted)' }}>
-                        {form.lyrics?.startsWith('[') ? '⚡ Synced' : '📄 Plain'} · {lyricsSource}
+                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 20, background: form.lyrics?.startsWith('[') ? 'color-mix(in oklab, var(--accent) 15%, transparent)' : 'color-mix(in oklab, var(--fg) 7%, transparent)', color: form.lyrics?.startsWith('[') ? 'var(--accent)' : 'var(--text-muted)' }}>
+                        {form.lyrics?.startsWith('[') ? 'Synced' : 'Plain'} · {lyricsSource}
                       </span>
                     )}
                     {form.lyrics && (
@@ -254,13 +254,13 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
 
                   {/* Lyrics options to pick from */}
                   {lyricsOptions.length > 0 && (
-                    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 180, overflowY: 'auto', padding: '8px', background: 'color-mix(in oklab, var(--fg) 3%, transparent)', borderRadius: 10, border: '1px solid var(--border)' }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Оберіть варіант</div>
                       {lyricsOptions.map((opt, i) => (
                         <button key={i} onClick={() => { setForm(p => ({ ...p, lyrics: opt.lyrics })); setLyricsSource('lrclib'); setLyricsOptions([]); }}
                           style={{ textAlign: 'left', background: 'var(--bg-hover)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 20, background: opt.isSynced ? 'rgba(48,209,88,0.15)' : 'rgba(255,255,255,0.07)', color: opt.isSynced ? 'var(--accent)' : 'var(--text-muted)', flexShrink: 0 }}>
-                            {opt.isSynced ? '⚡ Synced' : '📄 Plain'}
+                          <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 20, background: opt.isSynced ? 'color-mix(in oklab, var(--accent) 15%, transparent)' : 'color-mix(in oklab, var(--fg) 7%, transparent)', color: opt.isSynced ? 'var(--accent)' : 'var(--text-muted)', flexShrink: 0 }}>
+                            {opt.isSynced ? 'Synced' : 'Plain'}
                           </span>
                           <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.title}</span>
                           <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{opt.artist}</span>
@@ -277,7 +277,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
                     style={{ flex: 1, resize: 'none', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.7, minHeight: 0 }}
                   />
                   <p style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
-                    ⚡ Synced = LRC формат з тайм-кодами (підсвітка рядків під час відтворення) · 📄 Plain = звичайний текст
+                    Synced = LRC формат з тайм-кодами (підсвітка рядків під час відтворення) · Plain = звичайний текст
                   </p>
                 </div>
               )}
@@ -305,7 +305,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
                           <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.artistName} {r.albumTitle ? `• ${r.albumTitle}` : ''}</div>
                         </div>
-                        {r.genre && <span style={{ fontSize: 11, background: 'rgba(255,255,255,.07)', padding: '2px 8px', borderRadius: 20, color: 'var(--text-muted)', flexShrink: 0 }}>{r.genre}</span>}
+                        {r.genre && <span style={{ fontSize: 11, background: 'color-mix(in oklab, var(--fg) 7%, transparent)', padding: '2px 8px', borderRadius: 20, color: 'var(--text-muted)', flexShrink: 0 }}>{r.genre}</span>}
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{fmt(r.duration)}</span>
                       </div>
                     ))}
@@ -335,7 +335,7 @@ function ArtistTab({ artists, qc }) {
     await artistsApi.create(fd);
     qc.invalidateQueries(['artists']);
     setForm({ name: '', bio: '', genre: '' }); setImg(null);
-    toast.success('🎤 Виконавця додано!');
+    toast.success('Виконавця додано!');
   };
 
   return (
@@ -493,7 +493,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
     qc.invalidateQueries(['newReleases']);
     setForm({ title: '', artistId: '', albumId: '', genre: '', isExplicit: false, duration: 0, lyrics: '' });
     setAudio(null); setCover(null);
-    toast.success('🎵 Трек завантажено!');
+    toast.success('Трек завантажено!');
   };
 
   const missingLyricsCount = tracks.filter(t => !t.lyrics).length;
@@ -561,7 +561,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
               {form.duration > 0 && <span className="pill">⏱ {fmt(form.duration)}</span>}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <Field label="🎵 Медіафайл *">
+              <Field label="Медіафайл *">
                 <DropZone label="MP3 / WAV / FLAC" icon={FileMusic} accept="audio/*,video/*" file={audio} onFile={handleAudio} />
               </Field>
               <Field label="🖼 Обкладинка">
@@ -652,7 +652,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.title}
-                      {t.isExplicit && <span style={{ fontSize: 10, background: 'rgba(239,68,68,.2)', color: '#ef4444', padding: '1px 4px', borderRadius: 3, marginLeft: 5 }}>E</span>}
+                      {t.isExplicit && <span style={{ fontSize: 10, background: 'color-mix(in oklab, var(--danger) 20%, transparent)', color: 'var(--danger)', padding: '1px 4px', borderRadius: 3, marginLeft: 5 }}>E</span>}
                       {t.lyrics && <span title="Є текст пісні" style={{ marginLeft: 5, fontSize: 10, color: 'var(--accent)', opacity: 0.7 }}>♪</span>}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -672,7 +672,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
                     onClick={() => del(t.id)}
                     title="Видалити"
                     style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 5, display: 'flex', flexShrink: 0, borderRadius: 6, transition: 'color 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
                     onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}>
                     <Trash2 size={14} />
                   </button>
@@ -719,53 +719,28 @@ export default function AdminPage() {
   });
 
   return (
-    <div className="main-content">
-      {/* Header */}
-      <div style={{ background: 'linear-gradient(135deg,#0f3460,#162032,#0a0a0f)', padding: '32px 32px 0', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 20% 50%,rgba(29,185,84,.12),transparent 60%),radial-gradient(ellipse at 80% 30%,rgba(168,85,247,.1),transparent 50%)' }} />
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 10, background: 'linear-gradient(135deg,var(--accent),#059669)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Shield size={22} color="#000" />
-            </div>
-            <div>
-              <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px' }}>Адмін-панель</h1>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Керуй контентом Beatify</p>
-            </div>
-          </div>
-
-          {/* Stats */}
-          <div style={{ display: 'flex', gap: 24, margin: '20px 0 0' }}>
-            {[{ l: 'Виконавці', v: artists.length, c: 'var(--accent)' }, { l: 'Альбоми', v: albums.length, c: 'var(--purple)' }, { l: 'Треки', v: tracks.length, c: 'var(--blue)' }].map(s => (
-              <div key={s.l} style={{ padding: '10px 20px', background: 'rgba(255,255,255,.04)', borderRadius: '10px 10px 0 0', borderBottom: `2px solid ${s.c}` }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: s.c }}>{s.v}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: 4, marginTop: 16 }}>
-            {TABS.map(t => {
-              const Icon = t.icon;
-              const active = tab === t.id;
-              return (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: '8px 8px 0 0', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 600, transition: 'all 0.15s',
-                    background: active ? 'var(--bg-surface)' : 'transparent',
-                    color: active ? 'var(--text-primary)' : 'var(--text-muted)',
-                    borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent' }}>
-                  <Icon size={16} />
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+    <div className="page">
+      <header className="page-head">
+        <h1 className="display">Адмінка</h1>
+        <div className="page-meta">
+          <span>{artists.length} виконавців</span>
+          <span>{albums.length} альбомів</span>
+          <span>{tracks.length} треків</span>
         </div>
-      </div>
+        <div className="tabs" role="tablist">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab ${tab === t.id ? 'on' : ''}`} onClick={() => setTab(t.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <Icon size={15} />{t.label}
+              </button>
+            );
+          })}
+        </div>
+      </header>
 
       {/* Content */}
-      <div className="content-body" style={{ paddingTop: 28 }}>
+      <div>
         <div className="animate-in">
           {tab === 'artist'     && <ArtistTab   artists={artists} qc={qc} />}
           {tab === 'album'      && <AlbumTab    artists={artists} albums={albums} qc={qc} />}

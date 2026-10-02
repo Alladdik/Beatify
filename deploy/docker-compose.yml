@@ -24,15 +24,42 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Direct access on :5000 (HTTP). With a domain, deploy.sh sets APP_BIND=127.0.0.1 so only Caddy can reach it.
     ports:
-      - "${APP_PORT:-5000}:5000"
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-5000}:5000"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: "Host=db;Database=beatify;Username=beatify;Password=${POSTGRES_PASSWORD}"
       Jwt__Key: ${JWT_KEY:?set JWT_KEY in deploy/.env}
+      Cors__Origins: ${CORS_ORIGINS:-}
+      Auth__AllowRegistration: ${ALLOW_REGISTRATION:-true}
+      Spotify__ClientId: ${SPOTIFY_CLIENT_ID:-}
+      Spotify__ClientSecret: ${SPOTIFY_CLIENT_SECRET:-}
     volumes:
       - uploads:/app/wwwroot/uploads
+      - studio:/data/studio
+
+  # Automatic HTTPS (Let's Encrypt). Enable with:  --profile https   and DOMAIN=music.example.com in deploy/.env
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   pgdata:
   uploads:
+  studio:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,23 @@
+# Build context hygiene: never ship media, build output or local state into the image
+**/node_modules
+**/bin
+**/obj
+**/dist
+**/dist-web
+**/dist-electron
+.git
+.impeccable
+.claude
+temp_spotify
+mobile
+electron
+scripts
+server/wwwroot
+server/uploads
+server/App_Data
+server/*.db
+server/%TEMP%
+deploy/.env
+*.log
+*.md
+!deploy/README.md

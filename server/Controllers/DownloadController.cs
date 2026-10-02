@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using BeatifyServer.Data;
 using BeatifyServer.DTOs;
 using BeatifyServer.Models;
+using BeatifyServer.Services;
 
 namespace BeatifyServer.Controllers;
 
@@ -38,7 +39,8 @@ public class DownloadController : ControllerBase
 
         try
         {
-            var info = await RunYtDlp(new[] { "--dump-json", "--no-playlist", url });
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps)) return BadRequest(new { message = "Потрібне посилання http(s)" });
+            var info = await RunYtDlp(new[] { "--dump-json", "--no-playlist", "--", url });
             if (!info.Success)
                 return BadRequest(new { message = info.Error });
 
@@ -101,7 +103,7 @@ public class DownloadController : ControllerBase
 
         // Step 1: grab duration from JSON metadata (no ffprobe needed)
         int metaDuration = 0;
-        var infoResult = await RunYtDlp(new[] { "--dump-json", "--no-playlist", $"\"{dto.Url}\"" });
+        var infoResult = await RunYtDlp(new[] { "--dump-json", "--no-playlist", "--", dto.Url });
         if (infoResult.Success && !string.IsNullOrWhiteSpace(infoResult.Output))
         {
             try
@@ -120,8 +122,8 @@ public class DownloadController : ControllerBase
             "--no-playlist",
             "--format", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
             "--write-thumbnail",
-            "-o", $"\"{outputTemplate}\"",
-            $"\"{dto.Url}\""
+            "-o", outputTemplate,
+            "--", dto.Url
         };
 
         var result = await RunYtDlp(args.ToArray());
@@ -246,7 +248,7 @@ public class DownloadController : ControllerBase
 
         var searchQuery = $"{name}";
         var prefix = platform == "soundcloud" ? "scsearch" : "ytsearch";
-        var searchArg = $"\"{prefix}{limit}:{searchQuery}\"";
+        var searchArg = $"{prefix}{Math.Clamp(limit, 1, 300)}:{searchQuery}";
 
         var args = new[]
         {
@@ -342,7 +344,7 @@ public class DownloadController : ControllerBase
 
         try
         {
-            var res = await RunYtDlp(new[] { "--flat-playlist", "-J", $"\"{url}\"" });
+            var res = await RunYtDlp(new[] { "--flat-playlist", "-J", "--", url });
             if (!res.Success || string.IsNullOrWhiteSpace(res.Output))
                 return BadRequest(new { message = "Не вдалося розпізнати альбом або плейлист." });
 
@@ -398,7 +400,7 @@ public class DownloadController : ControllerBase
         try
         {
             // Step 1: Preview playlist info
-            var res = await RunYtDlp(new[] { "--flat-playlist", "-J", $"\"{dto.Url}\"" });
+            var res = await RunYtDlp(new[] { "--flat-playlist", "-J", "--", dto.Url });
             if (!res.Success || string.IsNullOrWhiteSpace(res.Output))
                 return BadRequest(new { message = "Не вдалося розпізнати альбом або плейлист для завантаження." });
 
@@ -492,8 +494,8 @@ public class DownloadController : ControllerBase
                     {
                         "--no-playlist",
                         "--format", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
-                        "-o", $"\"{outputTemplate}\"",
-                        $"\"{item.Url}\""
+                        "-o", outputTemplate,
+                        "--", item.Url
                     };
 
                     var dlRes = await RunYtDlp(dlArgs);
@@ -546,11 +548,8 @@ public class DownloadController : ControllerBase
     {
         try
         {
-            var psi = new ProcessStartInfo("ffprobe",
-                $"-v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{filePath}\"")
-            {
-                RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
-            };
+            var psi = new ProcessStartInfo("ffprobe") { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var a in new[] { "-v", "quiet", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", filePath }) psi.ArgumentList.Add(a);
             using var p = Process.Start(psi)!;
             var output = await p.StandardOutput.ReadToEndAsync();
             await p.WaitForExitAsync();
@@ -559,29 +558,8 @@ public class DownloadController : ControllerBase
         catch { return 0; }
     }
 
-    private static async Task<(bool Success, string Output, string Error)> RunYtDlp(string[] args)
-    {
-        var psi = new ProcessStartInfo("yt-dlp", string.Join(" ", args))
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = psi };
-        process.Start();
-
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-
-        await process.WaitForExitAsync();
-
-        var output = await outputTask;
-        var error = await errorTask;
-
-        return (process.ExitCode == 0, output, error);
-    }
+    private static Task<(bool Success, string Output, string Error)> RunYtDlp(string[] args) =>
+        YtDlp.RunAsync(args, TimeSpan.FromMinutes(10));
 }
 
 public record DownloadRequestDto(

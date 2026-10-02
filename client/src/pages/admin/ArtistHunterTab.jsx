@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Search, Download, CheckSquare, Square, Loader2, Music2, X, Check, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api';
@@ -18,7 +18,7 @@ export default function ArtistHunterTab() {
   const [selected, setSelected] = useState(new Set());
 
   // Global persistent queue
-  const { queue, isRunning, abort, clearFinished, clearAll } = useDownloadQueueStore();
+  const { queue, isRunning, abort, clearFinished } = useDownloadQueueStore();
 
   // Map queue by id for fast lookup
   const queueMap = Object.fromEntries(queue.map(t => [t.id, t]));
@@ -96,14 +96,14 @@ export default function ArtistHunterTab() {
 
       {/* Global queue status bar — always visible when queue has items */}
       {queue.length > 0 && (
-        <div style={{ marginBottom: 20, padding: '14px 18px', background: isRunning ? 'rgba(29,185,84,0.07)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isRunning ? 'rgba(29,185,84,0.2)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14 }}>
+        <div style={{ marginBottom: 20, padding: '14px 18px', background: isRunning ? 'color-mix(in oklab, var(--accent) 7%, transparent)' : 'color-mix(in oklab, var(--fg) 3%, transparent)', border: `1px solid ${isRunning ? 'color-mix(in oklab, var(--accent) 20%, transparent)' : 'color-mix(in oklab, var(--fg) 8%, transparent)'}`, borderRadius: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isRunning ? 10 : 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               {isRunning && <Loader2 size={15} color="var(--accent)" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
               <div style={{ display: 'flex', gap: 14, fontSize: 13 }}>
                 {(pending + downloading) > 0 && (
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    <b style={{ color: '#fff' }}>{pending + downloading}</b> очікує
+                    <b style={{ color: 'var(--fg)' }}>{pending + downloading}</b> очікує
                   </span>
                 )}
                 {done > 0 && (
@@ -112,7 +112,7 @@ export default function ArtistHunterTab() {
                   </span>
                 )}
                 {failed > 0 && (
-                  <span style={{ color: '#ef4444' }}>
+                  <span style={{ color: 'var(--danger)' }}>
                     <b>{failed}</b> помилок
                   </span>
                 )}
@@ -121,12 +121,12 @@ export default function ArtistHunterTab() {
             <div style={{ display: 'flex', gap: 6 }}>
               {isRunning && (
                 <button onClick={abort}
-                  style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: 'var(--danger)', color: 'var(--fg)', fontWeight: 700, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                   <X size={12} /> Зупинити
                 </button>
               )}
               <button onClick={clearFinished}
-                style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)', background: 'transparent', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Trash2 size={12} /> Очистити
               </button>
             </div>
@@ -135,16 +135,16 @@ export default function ArtistHunterTab() {
           {/* Progress bar + current track */}
           {isRunning && queue.length > 0 && (
             <>
-              <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
+              <div style={{ height: 4, background: 'color-mix(in oklab, var(--fg) 8%, transparent)', borderRadius: 2, overflow: 'hidden', marginBottom: 6 }}>
                 <div style={{
                   height: '100%',
-                  width: `${queue.length > 0 ? ((done + failed) / queue.length) * 100 : 0}%`,
-                  background: 'var(--accent)', borderRadius: 2, transition: 'width 0.4s'
+                  transform: `scaleX(${queue.length > 0 ? (done + failed) / queue.length : 0})`, transformOrigin: 'left',
+                  background: 'var(--accent)', borderRadius: 2, transition: 'transform 0.4s'
                 }} />
               </div>
               {currentItem && (
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  🎵 {currentItem.title}
+                  {currentItem.title}
                 </div>
               )}
             </>
@@ -160,22 +160,22 @@ export default function ArtistHunterTab() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Введіть ім'я виконавця... (напр. Eminem, The Weeknd)"
-            style={{ width: '100%', paddingLeft: 42, paddingRight: 16, height: 48, borderRadius: 14, border: '1.5px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            style={{ width: '100%', paddingLeft: 42, paddingRight: 16, height: 48, borderRadius: 14, border: '1.5px solid color-mix(in oklab, var(--fg) 10%, transparent)', background: 'color-mix(in oklab, var(--fg) 4%, transparent)', color: 'var(--fg)', fontSize: 15, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
           />
         </div>
 
         {/* Platform selector */}
-        <div style={{ display: 'flex', border: '1.5px solid rgba(255,255,255,0.1)', borderRadius: 14, overflow: 'hidden' }}>
-          {[{ id: 'youtube', label: '▶ YouTube' }, { id: 'soundcloud', label: '☁ SC' }].map(p => (
+        <div style={{ display: 'flex', border: '1.5px solid color-mix(in oklab, var(--fg) 10%, transparent)', borderRadius: 14, overflow: 'hidden' }}>
+          {[{ id: 'youtube', label: '▶ YouTube' }, { id: 'soundcloud', label: 'SC' }].map(p => (
             <button key={p.id} type="button" onClick={() => setPlatform(p.id)}
-              style={{ padding: '0 16px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: platform === p.id ? 'var(--accent)' : 'transparent', color: platform === p.id ? '#000' : 'rgba(255,255,255,0.6)', transition: 'all 0.15s' }}>
+              style={{ padding: '0 16px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, background: platform === p.id ? 'var(--accent)' : 'transparent', color: platform === p.id ? '#000' : 'color-mix(in oklab, var(--fg) 60%, transparent)', transition: 'all 0.15s' }}>
               {p.label}
             </button>
           ))}
         </div>
 
         <button type="submit" disabled={searching || !query.trim()}
-          style={{ padding: '0 28px', height: 48, borderRadius: 14, border: 'none', background: searching ? 'rgba(255,255,255,0.08)' : 'var(--accent)', color: searching ? 'var(--text-muted)' : '#000', fontWeight: 800, fontSize: 15, cursor: searching ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+          style={{ padding: '0 28px', height: 48, borderRadius: 14, border: 'none', background: searching ? 'color-mix(in oklab, var(--fg) 8%, transparent)' : 'var(--accent)', color: searching ? 'var(--text-muted)' : '#000', fontWeight: 800, fontSize: 15, cursor: searching ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
           {searching ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={16} />}
           {searching ? 'Шукаю...' : 'Знайти'}
         </button>
@@ -185,16 +185,16 @@ export default function ArtistHunterTab() {
       {results && (
         <>
           {/* Toolbar */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '12px 16px', background: 'color-mix(in oklab, var(--fg) 3%, transparent)', borderRadius: 12, border: '1px solid color-mix(in oklab, var(--fg) 7%, transparent)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 14, fontWeight: 700 }}>{tracks.length} треків знайдено</span>
               <span style={{ fontSize: 12, color: 'var(--accent)' }}>{selected.size} вибрано</span>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={selectAll}   style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Вибрати всі</button>
-              <button onClick={deselectAll} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Зняти всі</button>
+              <button onClick={selectAll}   style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)', background: 'transparent', color: 'color-mix(in oklab, var(--fg) 70%, transparent)', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Вибрати всі</button>
+              <button onClick={deselectAll} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)', background: 'transparent', color: 'color-mix(in oklab, var(--fg) 70%, transparent)', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Зняти всі</button>
               <button onClick={handleDownload} disabled={selected.size === 0}
-                style={{ padding: '8px 20px', borderRadius: 10, border: 'none', background: selected.size === 0 ? 'rgba(255,255,255,0.08)' : 'var(--accent)', color: selected.size === 0 ? 'var(--text-muted)' : '#000', fontWeight: 700, fontSize: 13, cursor: selected.size === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                style={{ padding: '8px 20px', borderRadius: 10, border: 'none', background: selected.size === 0 ? 'color-mix(in oklab, var(--fg) 8%, transparent)' : 'var(--accent)', color: selected.size === 0 ? 'var(--text-muted)' : '#000', fontWeight: 700, fontSize: 13, cursor: selected.size === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Download size={14} /> Завантажити {selected.size > 0 ? `(${selected.size})` : ''}
               </button>
             </div>
@@ -216,16 +216,16 @@ export default function ArtistHunterTab() {
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
                     borderRadius: 10,
-                    background: isDone   ? 'rgba(29,185,84,0.06)'
-                              : isFailed ? 'rgba(239,68,68,0.06)'
-                              : isLoading ? 'rgba(29,185,84,0.04)'
-                              : isQueued  ? 'rgba(255,255,255,0.03)'
-                              : isSelected ? 'rgba(255,255,255,0.05)' : 'transparent',
+                    background: isDone   ? 'color-mix(in oklab, var(--accent) 6%, transparent)'
+                              : isFailed ? 'color-mix(in oklab, var(--danger) 6%, transparent)'
+                              : isLoading ? 'color-mix(in oklab, var(--accent) 4%, transparent)'
+                              : isQueued  ? 'color-mix(in oklab, var(--fg) 3%, transparent)'
+                              : isSelected ? 'color-mix(in oklab, var(--fg) 5%, transparent)' : 'transparent',
                     border: `1px solid ${
-                      isDone   ? 'rgba(29,185,84,0.18)'
-                    : isFailed ? 'rgba(239,68,68,0.18)'
-                    : isLoading ? 'rgba(29,185,84,0.12)'
-                    : isSelected ? 'rgba(255,255,255,0.08)' : 'transparent'
+                      isDone   ? 'color-mix(in oklab, var(--accent) 18%, transparent)'
+                    : isFailed ? 'color-mix(in oklab, var(--danger) 18%, transparent)'
+                    : isLoading ? 'color-mix(in oklab, var(--accent) 12%, transparent)'
+                    : isSelected ? 'color-mix(in oklab, var(--fg) 8%, transparent)' : 'transparent'
                     }`,
                     cursor: isDone || isQueued || isLoading ? 'default' : 'pointer',
                     opacity: isDone ? 0.65 : 1,
@@ -235,18 +235,18 @@ export default function ArtistHunterTab() {
                   {/* Status icon */}
                   <div style={{ flexShrink: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {isDone    ? <Check    size={15} color="var(--accent)" />
-                    : isFailed  ? <X        size={15} color="#ef4444" />
+                    : isFailed  ? <X        size={15} color="var(--danger)" />
                     : isLoading ? <Loader2  size={15} color="var(--accent)" style={{ animation: 'spin 1s linear infinite' }} />
-                    : isQueued  ? <Loader2  size={15} color="rgba(255,255,255,0.2)" />
+                    : isQueued  ? <Loader2  size={15} color="color-mix(in oklab, var(--fg) 20%, transparent)" />
                     : isSelected ? <CheckSquare size={15} color="var(--accent)" />
-                    : <Square size={15} color="rgba(255,255,255,0.25)" />}
+                    : <Square size={15} color="color-mix(in oklab, var(--fg) 25%, transparent)" />}
                   </div>
 
                   {/* Index */}
                   <span style={{ fontSize: 12, color: 'var(--text-muted)', minWidth: 28, textAlign: 'right' }}>{i + 1}</span>
 
                   {/* Thumbnail */}
-                  <div style={{ width: 40, height: 40, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'color-mix(in oklab, var(--fg) 6%, transparent)' }}>
                     {track.thumbnail
                       ? <img src={track.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Music2 size={14} color="var(--text-muted)" /></div>
@@ -267,8 +267,8 @@ export default function ArtistHunterTab() {
                   <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>{formatDur(track.duration)}</span>
 
                   {/* Status label */}
-                  {isDone    && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>✓ Готово</span>}
-                  {isFailed  && <span style={{ fontSize: 11, color: '#ef4444',      fontWeight: 700, flexShrink: 0 }}>✗ Помилка</span>}
+                  {isDone    && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>Готово</span>}
+                  {isFailed  && <span style={{ fontSize: 11, color: 'var(--danger)',      fontWeight: 700, flexShrink: 0 }}>✗ Помилка</span>}
                   {isLoading  && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>↓ Завантаж...</span>}
                   {isQueued   && <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>в черзі</span>}
                 </div>

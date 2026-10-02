@@ -1,42 +1,70 @@
-# 🎵 Beatify — Spotify Clone
+# Beatify
 
-Full-stack music streaming platform built with React + ASP.NET Core + SQLite + Electron.
+Музичний застосунок, який працює скрізь: у браузері, як PWA на телефоні, як десктопний застосунок (Electron) і як нативний iOS/Android (Capacitor). Власна бібліотека + YouTube, SoundCloud і Spotify-імпорт, розумні добірки без жанрових ярликів, 8D-звук і еквалайзер, караоке, спільне слухання, вікторина й **Студія** — власний секвенсор у браузері.
 
-## Stack
-- **Frontend**: React.js (Vite) 
-- **Backend**: ASP.NET Core 8 Web API
-- **Database**: SQLite (Entity Framework Core)
-- **Desktop**: Electron
-- **Auth**: JWT Bearer Tokens
+## Що всередині
 
-## Project Structure
+| Розділ | Що вміє |
+|---|---|
+| **Головна / Відкриття** | «Продовжити», денні міксі, «Бо ви слухали…», нове в каталозі, стрічка відкриттів |
+| **Пошук** | Бібліотека, YouTube, SoundCloud і тексти пісень в одному полі |
+| **Розумні добірки** | Схожість за спільними слуханнями, вподобаннями й плейлистами (жанри не потрібні), радіо з поточного треку |
+| **Плеєр** | Черга з перетягуванням, синхронні тексти, таймер сну (в т. ч. «до кінця треку»), 8D / еквалайзер / реверб, Media Session, переключення між пристроями |
+| **Студія** | Барабанний секвенсор, піаноролл, мікшер, MIDI та клавіатура, генератор мелодій із зерна, експорт у WAV, збереження проєктів, публікація треку в бібліотеку |
+| **Соціальне** | Слухати разом, спільні плейлисти, караоке з записом, музична вікторина |
+| **Офлайн** | Завантаження треків у пристрій (IndexedDB), PWA, service worker |
+| **Тема** | Lab (темна) і Plate (світла), «система» за замовчуванням; акцент береться з обкладинки треку, що грає |
+
+## Структура
+
 ```
-spotify-clone/
-├── client/          # React frontend
-├── server/          # ASP.NET Core backend
-├── electron/        # Electron desktop launcher
-└── uploads/         # Local audio/image storage
+client/    React 19 + Vite — єдиний інтерфейс для web, PWA, Electron і Capacitor
+server/    ASP.NET Core (.NET 10) + PostgreSQL, SignalR, yt-dlp
+electron/  десктопний лаунчер: сам запускає сервер і відкриває інтерфейс
+mobile/    тонка оболонка Capacitor (iOS / Android), див. mobile/README_MOBILE.md
+deploy/    Docker, Caddy (HTTPS), скрипти розгортання на VPS, див. deploy/README.md
 ```
 
-## Setup & Run
+## Локальна розробка
 
-### Backend
+Потрібні: Node 22+, .NET 10 SDK, PostgreSQL 16+, ffmpeg і [yt-dlp](https://github.com/yt-dlp/yt-dlp) у `PATH` (для імпорту з YouTube/SoundCloud).
+
 ```bash
-cd server
-dotnet restore
-dotnet run
+# 1. База: створіть користувача й базу, або поправте рядок підключення в server/appsettings.Development.json
+# 2. Сервер (http://localhost:5000, міграції застосовуються самі)
+cd server && dotnet run
+
+# 3. Клієнт з гарячим перезавантаженням (http://localhost:5173, API — на :5000)
+cd client && npm install && npm run dev
 ```
 
-### Frontend
-```bash
-cd client
-npm install
-npm run dev
-```
+Або одним кліком у Windows: `start.bat`. Перший зареєстрований користувач стає адміністратором.
 
-### Electron
-```bash
-cd electron
-npm install
-npm start
-```
+## Запуск без розробки
+
+| Сценарій | Команда |
+|---|---|
+| **Веб + телефон у домашній мережі** | `npm run start:web` (збирає клієнт, запускає сервер, друкує LAN-адресу) |
+| **Десктоп (Electron)** | `start-desktop.bat` або `npm start`; ярлик на робочий стіл: `npm run shortcut` |
+| **Продакшен на VPS** | `bash deploy/deploy.sh music.example.com`, див. [deploy/README.md](deploy/README.md) |
+
+## Налаштування сервера
+
+Усе задається змінними середовища (у Docker — у `deploy/.env`) або в `appsettings.json`:
+
+| Змінна | Призначення |
+|---|---|
+| `ConnectionStrings__DefaultConnection` | рядок підключення PostgreSQL |
+| `Jwt__Key` | секрет підпису токенів, **мінімум 32 символи** (у продакшені обов'язково свій) |
+| `Cors__Origins` | дозволені origin для мобільного/десктопного застосунку через кому (порожньо = усі) |
+| `Auth__AllowRegistration` | `false` закриває нові реєстрації (перший акаунт завжди дозволений) |
+| `Spotify__ClientId` / `Spotify__ClientSecret` | ключі для імпорту плейлистів Spotify (або вводяться в адмінці) |
+| `Studio__Path` | де зберігати проєкти Студії (за замовчуванням `server/App_Data/studio`) |
+| `SPA_ROOT` | де лежить зібраний клієнт (за замовчуванням `client/dist-web`) |
+| `YTDLP_PATH` | шлях до `yt-dlp`, якщо його немає в `PATH` |
+
+Перевірка здоров'я: `GET /healthz`.
+
+## Безпека
+
+Хаби SignalR вимагають входу; завантаження файлів і проксі аудіо обмежені (без SSRF, аргументи yt-dlp передаються масивом); плейлисти перевіряють власника; стрімінг не накручує лічильник прослуховувань. Секрети ніколи не комітяться: `.env`, ключі й медіа в `.gitignore`.

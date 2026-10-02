@@ -10,7 +10,7 @@ public record UserDto(int Id, string Email, string Name, string Role, string? Av
 public record UpdateUserDto(string? Name, string? Email);
 
 // Artist
-public record ArtistDto(int Id, string Name, string? ImagePath, string? Bio, string? Genre, int MonthlyListeners, int TrackCount);
+public record ArtistDto(int Id, string Name, string? ImagePath, string? Bio, string? Genre, int MonthlyListeners, int TrackCount, List<string>? Covers = null);
 public record CreateArtistDto(string Name, string? Bio, string? Genre);
 
 // Album

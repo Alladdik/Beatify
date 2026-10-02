@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { spotifyApi, downloadApi } from '../../api';
+import { useState } from 'react';
+import { spotifyApi } from '../../api';
 import { useQueryClient } from '@tanstack/react-query';
 import { Search, Download, Loader2, Music, CheckCircle2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -46,7 +46,7 @@ export default function SpotifyImportTab() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="admin-card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg,#1db954,#15803d)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg,var(--accent-text),#15803d)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Music size={18} color="#fff" />
             </div>
             <div>
@@ -80,7 +80,7 @@ export default function SpotifyImportTab() {
             {loading ? 'Аналізуємо...' : 'Отримати список треків'}
           </button>
           
-          <div style={{ marginTop: 24, padding: '12px 14px', background: 'rgba(29,185,84,0.08)', border: '1px solid rgba(29,185,84,0.2)', borderRadius: 8 }}>
+          <div style={{ marginTop: 24, padding: '12px 14px', background: 'color-mix(in oklab, var(--accent) 8%, transparent)', border: '1px solid color-mix(in oklab, var(--accent) 20%, transparent)', borderRadius: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>💡 Як отримати API ключі?</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
               1. Перейдіть на <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer" style={{color: 'var(--accent)'}}>developer.spotify.com</a><br />
@@ -123,7 +123,7 @@ export default function SpotifyImportTab() {
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.artist}</div>
                       </div>
                       {result && result.status === 'success' && <CheckCircle2 size={16} color="var(--accent)" />}
-                      {result && result.status === 'error' && <AlertCircle size={16} color="#ef4444" title={result.error} />}
+                      {result && result.status === 'error' && <AlertCircle size={16} color="var(--danger)" title={result.error} />}
                       {!result && importing && progress.current === i + 1 && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
                     </div>
                   );
@@ -131,13 +131,13 @@ export default function SpotifyImportTab() {
               </div>
 
               {importing ? (
-                <div style={{ padding: 12, background: 'rgba(255,255,255,0.05)', borderRadius: 8 }}>
+                <div style={{ padding: 12, background: 'color-mix(in oklab, var(--fg) 5%, transparent)', borderRadius: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
                     <span>Завантаження...</span>
                     <span>{progress.current} / {progress.total}</span>
                   </div>
-                  <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: 'var(--accent)', width: `${(progress.current / progress.total) * 100}%`, transition: 'width 0.3s' }} />
+                  <div style={{ height: 4, background: 'color-mix(in oklab, var(--fg) 10%, transparent)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: 'var(--accent)', transform: `scaleX(${progress.current / progress.total})`, transformOrigin: 'left', transition: 'transform 0.3s' }} />
                   </div>
                 </div>
               ) : (

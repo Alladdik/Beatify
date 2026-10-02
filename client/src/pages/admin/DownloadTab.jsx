@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { downloadApi, artistsApi, albumsApi } from '../../api';
+import { useState } from 'react';
+import { downloadApi, artistsApi } from '../../api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Link2, Search, CheckCircle2, AlertCircle, Loader2, Disc, Music } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -8,7 +8,7 @@ const PLATFORMS = [
   { name: 'YouTube Music', color: '#ff0000', icon: '🎵', example: 'https://music.youtube.com/playlist?list=...' },
   { name: 'YouTube',       color: '#ff0000', icon: '▶️', example: 'https://youtube.com/playlist?list=...' },
   { name: 'SoundCloud',    color: '#ff5500', icon: '☁️', example: 'https://soundcloud.com/artist/sets/album' },
-  { name: 'Spotify',       color: '#1db954', icon: '🎧', example: 'https://open.spotify.com/album/...' },
+  { name: 'Spotify',       color: 'var(--accent-text)', icon: '🎧', example: 'https://open.spotify.com/album/...' },
 ];
 
 export default function DownloadTab() {
@@ -30,9 +30,7 @@ export default function DownloadTab() {
   const [error, setError] = useState('');
 
   const { data: artists = [] } = useQuery({ queryKey: ['artists'], queryFn: () => artistsApi.getAll().then(r => r.data) });
-  const { data: albums = [] } = useQuery({ queryKey: ['albums'], queryFn: () => albumsApi.getAll().then(r => r.data) });
 
-  const filteredAlbums = albums.filter(a => !form.artistId || a.artistId === parseInt(form.artistId));
 
   const handleFetchInfo = async () => {
     if (!url.trim()) return toast.error('Введіть URL');
@@ -92,7 +90,7 @@ export default function DownloadTab() {
       qc.invalidateQueries(['trending']);
       qc.invalidateQueries(['newReleases']);
       setDlStatus('success');
-      toast.success(`✅ "${form.title}" завантажено до бібліотеки!`);
+      toast.success(`"${form.title}" завантажено до бібліотеки!`);
       setUrl(''); setInfo(null); setForm({ title: '', artistName: '', artistId: '', albumId: '', genre: '' });
     } catch (err) {
       const msg = err.response?.data?.message || 'Помилка завантаження';
@@ -121,7 +119,7 @@ export default function DownloadTab() {
       qc.invalidateQueries(['albums']);
       qc.invalidateQueries(['artists']);
       setDlStatus('success');
-      toast.success(res.data.message || '✅ Альбом успішно скачано!');
+      toast.success(res.data.message || 'Альбом успішно скачано!');
       setUrl(''); setPlaylistInfo(null);
     } catch (err) {
       const msg = err.response?.data?.message || 'Помилка завантаження альбому';
@@ -213,7 +211,7 @@ export default function DownloadTab() {
 
           {/* Error */}
           {error && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#ef4444', fontSize: 13 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: 'color-mix(in oklab, var(--danger) 10%, transparent)', border: '1px solid color-mix(in oklab, var(--danger) 30%, transparent)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--danger)', fontSize: 13 }}>
               <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
               {error}
             </div>
@@ -228,7 +226,7 @@ export default function DownloadTab() {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.title}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>{info.artist} {info.duration ? `• ${Math.floor(info.duration / 60)}:${(info.duration % 60).toString().padStart(2, '0')}` : ''}</div>
-                <span className="pill green" style={{ fontSize: 11 }}>✅ Трек розпізнано</span>
+                <span className="pill green" style={{ fontSize: 11 }}>Трек розпізнано</span>
               </div>
             </div>
           )}
@@ -251,7 +249,7 @@ export default function DownloadTab() {
               {/* Playlist track items scroll */}
               <div style={{ maxHeight: 160, overflowY: 'auto', background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: 8 }}>
                 {playlistInfo.tracks?.map((t, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 6px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 6px', borderBottom: '1px solid color-mix(in oklab, var(--fg) 5%, transparent)' }}>
                     <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{idx + 1}. {t.title}</span>
                   </div>
                 ))}
@@ -338,7 +336,7 @@ export default function DownloadTab() {
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Підтримувані платформи</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {PLATFORMS.map(p => (
-              <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8, border: `1px solid rgba(255,255,255,0.04)` }}>
+              <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-hover)', borderRadius: 8, border: `1px solid color-mix(in oklab, var(--fg) 4%, transparent)` }}>
                 <span style={{ fontSize: 20 }}>{p.icon}</span>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>

@@ -1,145 +1,98 @@
-import React, { useRef, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useParams, useNavigate } from 'react-router-dom';
-import { artistsApi, fileUrl } from '../api';
-import { TrackRow } from '../components/TrackComponents';
+import { Radio } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { artistsApi, discoverApi, errMsg } from '../api';
+import { fileUrl } from '../lib/config';
+import { formatCount, pluralUk, tracksLabel } from '../lib/format';
 import { usePlayerStore } from '../store/playerStore';
-import { useAlbumColor } from '../hooks/useAlbumColor';
-import { Play, Pause, Music2, Disc3 } from 'lucide-react';
-
-function ArtistCanvas({ color }) {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    const resize = () => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
-    resize();
-    window.addEventListener('resize', resize);
-
-    const [r, g, b] = color || [29, 185, 84];
-    const particles = Array.from({ length: 60 }, () => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      size: Math.random() * 3 + 1,
-      speedX: (Math.random() - 0.5) * 0.4,
-      speedY: (Math.random() - 0.5) * 0.4,
-      opacity: Math.random() * 0.5 + 0.1,
-    }));
-
-    let raf;
-    let animating = true;
-    const draw = () => {
-      if (!animating) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      particles.forEach(p => {
-        p.x += p.speedX;
-        p.y += p.speedY;
-        if (p.x < 0) p.x = canvas.width;
-        if (p.x > canvas.width) p.x = 0;
-        if (p.y < 0) p.y = canvas.height;
-        if (p.y > canvas.height) p.y = 0;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${r},${g},${b},${p.opacity})`;
-        ctx.fill();
-      });
-      raf = requestAnimationFrame(draw);
-    };
-    draw();
-    return () => { animating = false; cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
-  }, [color?.toString()]);
-
-  return <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />;
-}
+import { useCoverTint } from '../hooks/useAccent';
+import Cover, { Collage } from '../components/ui/Cover';
+import Tile from '../components/Tile';
+import DetailHead, { PlayActions } from '../components/DetailHead';
+import TrackList from '../components/TrackRow';
+import { Section, Shelf, SkeletonRows, EmptyState } from '../components/Section';
 
 export default function ArtistPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
-  const { currentTrack, isPlaying, setTrack, togglePlay } = usePlayerStore();
-
   const [showAll, setShowAll] = useState(false);
+  const artist = useQuery({ queryKey: ['artist', id], queryFn: () => artistsApi.getById(id).then((r) => r.data) });
+  const tracks = useQuery({ queryKey: ['artistTracks', id], queryFn: () => artistsApi.getTracks(id).then((r) => r.data) });
+  const albums = useQuery({ queryKey: ['artistAlbums', id], queryFn: () => artistsApi.getAlbums(id).then((r) => r.data) });
+  const similar = useQuery({ queryKey: ['artistSimilar', id], queryFn: () => artistsApi.getSimilar(id).then((r) => r.data) });
 
-  const { data: artist } = useQuery({ queryKey: ['artist', id], queryFn: () => artistsApi.getById(id).then(r => r.data) });
-  const { data: tracks = [] } = useQuery({ queryKey: ['artistTracks', id], queryFn: () => artistsApi.getTracks(id).then(r => r.data) });
-  const { data: albums = [] } = useQuery({ queryKey: ['artistAlbums', id], queryFn: () => artistsApi.getAlbums(id).then(r => r.data) });
+  const a = artist.data;
+  const list = tracks.data ?? [];
+  const covers = (a?.covers ?? []).map((c) => fileUrl('covers', c));
+  const photo = fileUrl('artists', a?.imagePath);
+  const tint = useCoverTint(photo ?? covers[0]);
 
-  const img = artist?.imagePath ? fileUrl('artists', artist.imagePath) : null;
-  const color = useAlbumColor(img);
-  const isPlayingThis = currentTrack && tracks.some(t => t.id === currentTrack.id) && isPlaying;
-
-  const handlePlay = () => {
-    if (!tracks.length) return;
-    if (isPlayingThis) togglePlay();
-    else setTrack(tracks[0], tracks, 0);
+  const radio = async () => {
+    try {
+      const res = await discoverApi.mix(`artist-${id}`);
+      usePlayerStore.getState().playQueue(res.data.tracks, 0);
+    } catch (e) { toast.error(errMsg(e, 'Радіо виконавця поки недоступне')); }
   };
 
+  if (artist.isError) {
+    return <div className="page"><EmptyState title="Виконавця не знайдено" action={<Link className="btn" to="/">На головну</Link>} /></div>;
+  }
+
   return (
-    <div className="main-content">
-      <div className="artist-header" style={{ background: `linear-gradient(to bottom, rgba(29,185,84,0.15), var(--bg-base))`, position: 'relative', overflow: 'hidden' }}>
-        <ArtistCanvas color={color ? [color.r, color.g, color.b] : null} />
-        {img && <img src={img} className="artist-header-img" alt="" />}
-        <div className="artist-header-content">
-          <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.7 }}>✓ Verified Artist</div>
-          <div className="artist-name">{artist?.name}</div>
-          <div className="artist-listeners">{(artist?.monthlyListeners || 0).toLocaleString()} щомісячних слухачів</div>
-        </div>
-      </div>
+    <div className="tint" style={tint}>
+      <DetailHead
+        tint={tint}
+        art={photo ? <Cover src={photo} title={a?.name} round lazy={false} /> : <Collage covers={covers} title={a?.name} round />}
+        title={a?.name ?? ' '}
+        meta={[
+          list.length > 0 && tracksLabel(list.length),
+          (albums.data?.length ?? 0) > 0 && `${albums.data.length} ${pluralUk(albums.data.length, ['альбом', 'альбоми', 'альбомів'])}`,
+          a?.monthlyListeners > 0 && `${formatCount(a.monthlyListeners)} слухачів на місяць`,
+          a?.genre && a.genre !== 'Various' ? a.genre : null,
+        ]}
+      >
+        <PlayActions tracks={list}>
+          <button className="btn lg" onClick={radio}><Radio size={18} /> Радіо виконавця</button>
+        </PlayActions>
+      </DetailHead>
 
-      <div className="content-body" style={{ paddingTop: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-          <button className="btn-play-large" onClick={handlePlay}>
-            {isPlayingThis ? <Pause size={24} /> : <Play size={24} />}
-          </button>
-          {artist?.genre && <span className="pill green">{artist.genre}</span>}
-        </div>
-
-        {artist?.bio && (
-          <div style={{ marginBottom: 32, padding: 20, background: 'var(--bg-elevated)', borderRadius: 12 }}>
-            <h3 style={{ marginBottom: 8, fontSize: 16, fontWeight: 700 }}>Про виконавця</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>{artist.bio}</p>
-          </div>
-        )}
-
-        {tracks.length > 0 && (
-          <section style={{ marginBottom: 32 }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Популярні треки</h2>
-            <div className="track-list">
-              {tracks.slice(0, showAll ? undefined : 8).map((t, i) => <TrackRow key={t.id} track={t} index={i} queue={tracks} />)}
-            </div>
-            {tracks.length > 8 && (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  onClick={() => setShowAll(v => !v)}
-                  style={{ padding: '10px 24px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-                >
-                  {showAll ? 'Показати менше' : `Показати всі ${tracks.length} треків`}
+      <div className="page" style={{ paddingTop: 'var(--s-6)' }}>
+        <Section title="Популярні треки">
+          {tracks.isLoading ? <SkeletonRows /> : (
+            <>
+              <TrackList tracks={showAll ? list : list.slice(0, 6)} queue={list} showAlbum />
+              {list.length > 6 && (
+                <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => setShowAll((v) => !v)}>
+                  {showAll ? 'Показати менше' : `Усі ${list.length} треків`}
                 </button>
-              </div>
-            )}
-          </section>
+              )}
+            </>
+          )}
+        </Section>
+
+        {albums.data?.length > 0 && (
+          <Section title="Альбоми">
+            <Shelf>
+              {albums.data.map((al) => (
+                <Tile key={al.id} to={`/album/${al.id}`} art={<Cover src={fileUrl('covers', al.coverPath)} title={al.title} />} title={al.title} sub={`${al.year} · ${tracksLabel(al.trackCount)}`} />
+              ))}
+            </Shelf>
+          </Section>
         )}
 
-        {albums.length > 0 && (
-          <section>
-            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Альбоми</h2>
-            <div className="cards-grid">
-              {albums.map(a => (
-                <div key={a.id} className="card" onClick={() => navigate(`/album/${a.id}`)}>
-                  <div className="card-cover" style={{ background: 'linear-gradient(135deg, #374151, #1f2937)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Disc3 size={40} color="var(--text-muted)" />
-                  </div>
-                  <div className="card-title">{a.title}</div>
-                  <div className="card-sub">{a.year} • {a.trackCount} треків</div>
-                </div>
+        {similar.data?.length > 0 && (
+          <Section title="Схожі виконавці">
+            <Shelf>
+              {similar.data.map((s) => (
+                <Tile key={s.id} to={`/artist/${s.id}`} round art={<Collage covers={(s.covers || []).map((c) => fileUrl('covers', c))} title={s.name} round />} title={s.name} sub={tracksLabel(s.trackCount)} />
               ))}
-            </div>
-          </section>
+            </Shelf>
+          </Section>
+        )}
+
+        {a?.bio && a.bio !== 'Новий виконавець на Beatify' && (
+          <Section title="Про виконавця"><p className="page-lede">{a.bio}</p></Section>
         )}
       </div>
     </div>

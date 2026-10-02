@@ -28,6 +28,8 @@ tar -czf $archive `
     --exclude=dist-electron `
     --exclude=uploads `
     --exclude=wwwroot/uploads `
+    --exclude=App_Data `
+    --exclude=.git `
     --exclude=*.db `
     client server deploy package.json
 

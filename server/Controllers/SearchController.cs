@@ -114,7 +114,7 @@ public class SearchController : ControllerBase
             x.Track.IsExplicit,
             x.IsLiked,
             x.Track.CreatedAt,
-            x.Track.Lyrics,
+            null,
             x.Track.MediaType
         ))
         .ToList();
@@ -197,7 +197,7 @@ public class SearchController : ControllerBase
                 t.IsExplicit,
                 likedTrackIds.Contains(t.Id),
                 t.CreatedAt,
-                t.Lyrics,
+                null,
                 t.MediaType
             ))
             .ToListAsync();

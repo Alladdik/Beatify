@@ -1,55 +1,56 @@
-import React from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { tracksApi } from '../api';
-import { TrackRow } from '../components/TrackComponents';
-import { usePlayerStore } from '../store/playerStore';
-import { Play, Pause, Heart } from 'lucide-react';
+import { formatTotalDuration, tracksLabel } from '../lib/format';
+import { useLikesStore } from '../store/likesStore';
+import TrackList from '../components/TrackRow';
+import { PlayActions } from '../components/DetailHead';
+import { SkeletonRows, EmptyState } from '../components/Section';
+
+const SORTS = [['recent', 'Нещодавно додані'], ['title', 'Назва'], ['artist', 'Виконавець']];
 
 export default function LikedPage() {
-  const { currentTrack, isPlaying, setTrack, togglePlay } = usePlayerStore();
-  const { data: tracks = [], isLoading, refetch } = useQuery({
-    queryKey: ['liked'],
-    queryFn: () => tracksApi.getLiked().then(r => r.data),
-  });
+  const likedIds = useLikesStore((s) => s.ids);
+  const { data = [], isLoading } = useQuery({ queryKey: ['liked'], queryFn: () => tracksApi.getLiked().then((r) => r.data) });
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('recent');
 
-  const isPlayingThis = currentTrack && tracks.some(t => t.id === currentTrack.id) && isPlaying;
+  // A track un-liked elsewhere disappears immediately, without waiting for a refetch
+  const tracks = useMemo(() => {
+    let list = data.filter((t) => likedIds.size === 0 || likedIds.has(t.id));
+    const ql = q.trim().toLowerCase();
+    if (ql) list = list.filter((t) => `${t.title} ${t.artistName} ${t.albumTitle ?? ''}`.toLowerCase().includes(ql));
+    if (sort === 'title') list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'uk'));
+    if (sort === 'artist') list = [...list].sort((a, b) => a.artistName.localeCompare(b.artistName, 'uk'));
+    return list;
+  }, [data, likedIds, q, sort]);
+
+  const total = data.reduce((s, t) => s + (t.duration || 0), 0);
 
   return (
-    <div className="main-content">
-      <div style={{ background: 'linear-gradient(135deg, #4a0e8f, #7c3aed)', padding: '48px 32px 32px', display: 'flex', alignItems: 'flex-end', gap: 24 }}>
-        <div style={{ width: 200, height: 200, background: 'linear-gradient(135deg, #a855f7, #7c3aed)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Heart size={80} fill="white" color="white" />
-        </div>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8, opacity: 0.7 }}>Плейлист</div>
-          <h1 style={{ fontSize: 48, fontWeight: 900, marginBottom: 8 }}>Вподобані треки</h1>
-          <div style={{ fontSize: 14, opacity: 0.7 }}>{tracks.length} треків</div>
-        </div>
-      </div>
+    <div className="page">
+      <header className="page-head">
+        <h1 className="display">Вподобані</h1>
+        <div className="page-meta"><span>{tracksLabel(data.length)}</span>{total > 0 && <span>{formatTotalDuration(total)}</span>}</div>
+        <PlayActions tracks={tracks} />
+      </header>
 
-      <div className="content-body" style={{ paddingTop: 24 }}>
-        <div style={{ marginBottom: 24 }}>
-          <button className="btn-play-large" onClick={() => {
-            if (!tracks.length) return;
-            if (isPlayingThis) togglePlay();
-            else setTrack(tracks[0], tracks, 0);
-          }}>
-            {isPlayingThis ? <Pause size={24} /> : <Play size={24} />}
-          </button>
+      {data.length > 4 && (
+        <div className="toolbar">
+          <div className="search-field"><Search size={16} /><input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Шукати серед вподобаних" aria-label="Фільтр" /></div>
+          <div className="chips">{SORTS.map(([id, label]) => <button key={id} className={`chip ${sort === id ? 'on' : ''}`} onClick={() => setSort(id)}>{label}</button>)}</div>
         </div>
-        {isLoading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" style={{ width: 32, height: 32 }} /></div>
-        ) : tracks.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-            <Heart size={48} style={{ marginBottom: 12 }} />
-            <p>Вподобайте треки натиснувши на ♡</p>
-          </div>
-        ) : (
-          <div className="track-list">
-            {tracks.map((t, i) => <TrackRow key={t.id} track={t} index={i} queue={tracks} onLikeChange={refetch} />)}
-          </div>
-        )}
-      </div>
+      )}
+
+      {isLoading ? <SkeletonRows /> : data.length === 0 ? (
+        <EmptyState title="Тут поки порожньо" text="Натисніть на сердечко біля треку — і він з’явиться тут." action={<Link className="btn primary" to="/search">Знайти музику</Link>} />
+      ) : tracks.length === 0 ? (
+        <p className="muted">Нічого не знайдено за «{q}».</p>
+      ) : (
+        <TrackList tracks={tracks} />
+      )}
     </div>
   );
 }

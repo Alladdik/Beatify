@@ -1,18 +1,15 @@
 {
   "appId": "com.beatify.mobile",
   "appName": "Beatify",
-  "webDir": "dist",
-  "bundledWebRuntime": false,
+  "webDir": "../client/dist-web",
   "server": {
     "androidScheme": "https",
-    "iosScheme": "https"
+    "iosScheme": "https",
+    "cleartext": true
   },
   "plugins": {
-    "CapacitorHttp": {
-      "enabled": true
-    },
-    "Keyboard": {
-      "resize": "body"
-    }
+    "CapacitorHttp": { "enabled": false },
+    "Keyboard": { "resize": "body" },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#0c0c10" }
   }
 }

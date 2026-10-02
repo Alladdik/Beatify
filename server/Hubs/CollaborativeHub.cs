@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace BeatifyServer.Hubs;
@@ -6,6 +7,7 @@ namespace BeatifyServer.Hubs;
 /// Hub for real-time collaborative playlist editing.
 /// Clients join a room per playlist and receive live updates when tracks are added/removed/reordered.
 /// </summary>
+[Authorize]
 public class CollaborativeHub : Hub
 {
     // playlistId → { connectionId → userName }
@@ -20,6 +22,7 @@ public class CollaborativeHub : Hub
 
     public async Task JoinPlaylist(string playlistId, string userName)
     {
+        userName = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? userName;
         await Groups.AddToGroupAsync(Context.ConnectionId, playlistId);
         var users = Viewers.GetOrAdd(playlistId, _ => new());
         users[Context.ConnectionId] = userName;
@@ -40,6 +43,7 @@ public class CollaborativeHub : Hub
     /// <summary>Broadcast a playlist change (track added/removed/reordered) to all viewers.</summary>
     public async Task PlaylistChanged(string playlistId, string changeType, object data)
     {
+        if (!Viewers.TryGetValue(playlistId, out var members) || !members.ContainsKey(Context.ConnectionId)) return;
         await Clients.OthersInGroup(playlistId).SendAsync("PlaylistChanged", changeType, data);
     }
 

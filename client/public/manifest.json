@@ -1,82 +1,27 @@
 {
   "short_name": "Beatify",
-  "name": "Beatify — Music Streaming",
-  "description": "Stream high-fidelity music with DSP modes, 8D audio, karaoke, and real-time device sync.",
+  "name": "Beatify — музика, яку чути й бачити",
+  "description": "Слухайте власну бібліотеку, YouTube та SoundCloud, змінюйте звук (8D, еквалайзер), співайте караоке й створюйте музику в студії.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
-  "background_color": "#07070e",
-  "theme_color": "#07070e",
+  "background_color": "#0c0c10",
+  "theme_color": "#0c0c10",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "categories": ["music", "entertainment"],
   "lang": "uk",
-
+  "dir": "ltr",
   "icons": [
-    {
-      "src": "/favicon.svg",
-      "type": "image/svg+xml",
-      "sizes": "any",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-192.png",
-      "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-192.png",
-      "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/icon-512.png",
-      "type": "image/png",
-      "sizes": "512x512",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-512.png",
-      "type": "image/png",
-      "sizes": "512x512",
-      "purpose": "maskable"
-    }
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
   ],
-
   "shortcuts": [
-    {
-      "name": "Пошук музики",
-      "short_name": "Пошук",
-      "description": "Знайти треки, виконавців, альбоми",
-      "url": "/search",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any" }]
-    },
-    {
-      "name": "Вподобані треки",
-      "short_name": "Вподобані",
-      "description": "Відкрити список вподобаних пісень",
-      "url": "/liked",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any" }]
-    }
-  ],
-
-  "screenshots": [
-    {
-      "src": "/screenshot-wide.png",
-      "sizes": "1280x800",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Beatify on desktop"
-    },
-    {
-      "src": "/screenshot-mobile.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Beatify on mobile"
-    }
+    { "name": "Пошук музики", "short_name": "Пошук", "description": "Знайти треки, виконавців, альбоми", "url": "/search", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Вподобані треки", "short_name": "Вподобані", "url": "/liked", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Студія", "short_name": "Студія", "description": "Створити музику", "url": "/studio", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
   ]
 }

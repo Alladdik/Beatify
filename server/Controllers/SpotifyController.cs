@@ -13,18 +13,24 @@ namespace BeatifyServer.Controllers;
 public class SpotifyController : ControllerBase
 {
     private readonly IHttpClientFactory _http;
+    private readonly IConfiguration _config;
 
-    public SpotifyController(IHttpClientFactory http)
+    public SpotifyController(IHttpClientFactory http, IConfiguration config)
     {
         _http = http;
+        _config = config;
     }
 
-    [HttpGet("playlist")]
-    public async Task<IActionResult> GetPlaylist(
-        [FromQuery] string url,
-        [FromQuery] string clientId,
-        [FromQuery] string clientSecret)
+    public record SpotifyPlaylistRequest(string? Url, string? ClientId, string? ClientSecret);
+
+    // POST (not GET): the client secret must never travel in a URL, where it ends up in logs.
+    // Credentials may also come from server configuration (Spotify:ClientId / Spotify:ClientSecret).
+    [HttpPost("playlist")]
+    public async Task<IActionResult> GetPlaylist([FromBody] SpotifyPlaylistRequest req)
     {
+        var url = req.Url;
+        var clientId = !string.IsNullOrWhiteSpace(req.ClientId) ? req.ClientId : _config["Spotify:ClientId"];
+        var clientSecret = !string.IsNullOrWhiteSpace(req.ClientSecret) ? req.ClientSecret : _config["Spotify:ClientSecret"];
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
             return BadRequest(new { message = "Всі поля (URL, ClientID, ClientSecret) обов'язкові!" });
 
@@ -38,6 +44,7 @@ public class SpotifyController : ControllerBase
 
             // Step 1: get access token
             var creds = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
+            http.Timeout = TimeSpan.FromSeconds(30);
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", creds);
 
             var tokenResp = await http.PostAsync(
@@ -143,7 +150,7 @@ public class SpotifyController : ControllerBase
                 album,
                 durationMs,
                 coverUrl,
-                query = $"ytsearch1:\"{firstArtist} - {title} audio\""
+                query = $"ytsearch1:{firstArtist} - {title} audio"
             });
         }
     }

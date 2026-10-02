@@ -1,151 +1,74 @@
-import React, { useEffect, useState } from 'react';
-import { useOfflineStore } from '../store/offlineStore';
-import { usePlayerStore } from '../store/playerStore';
-import { WifiOff, Music, Trash2, CloudDownload, HardDrive, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Trash2, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useOfflineStore } from '../store/offlineStore';
+import { isElectron, isNative } from '../lib/config';
+import { tracksLabel } from '../lib/format';
+import TrackList from '../components/TrackRow';
+import { PlayActions } from '../components/DetailHead';
+import { EmptyState } from '../components/Section';
 
-function fmt(s) {
-  if (!s) return '0:00';
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function fmtBytes(bytes) {
-  if (!bytes) return '0 MB';
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+function fmtBytes(b) {
+  if (!b) return '0 МБ';
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} КБ`;
+  if (b < 1024 ** 3) return `${(b / 1024 / 1024).toFixed(1)} МБ`;
+  return `${(b / 1024 ** 3).toFixed(2)} ГБ`;
 }
 
 export default function OfflinePage() {
-  const { downloadedTracks, removeTrack, clearAll, getStats } = useOfflineStore();
-  const { setTrack, currentTrack } = usePlayerStore();
-  const [storageInfo, setStorageInfo] = useState(null);
-  const isElectron = !!window.electronAPI;
+  const downloaded = useOfflineStore((s) => s.downloadedTracks);
+  const clearAll = useOfflineStore((s) => s.clearAll);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [quota, setQuota] = useState(null);
 
-  const tracks = Object.entries(downloadedTracks).map(([id, entry]) => ({ ...entry.metadata, _offlineEntry: entry, id: Number(id) }));
-  const stats = getStats();
+  const entries = Object.entries(downloaded);
+  const tracks = entries.map(([id, e]) => ({ ...e.metadata, id: Number(id) })).sort((a, b) => (downloaded[b.id]?.downloadedAt ?? 0) - (downloaded[a.id]?.downloadedAt ?? 0));
+  const bytes = entries.reduce((a, [, e]) => a + (e.size || 0), 0);
 
   useEffect(() => {
-    if (window.electronAPI) {
-      window.electronAPI.getOfflineInfo().then(setStorageInfo).catch(() => {});
-    }
-  }, [downloadedTracks]);
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener('online', on); window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+  useEffect(() => {
+    navigator.storage?.estimate?.().then((e) => setQuota(e)).catch(() => {});
+  }, [downloaded]);
 
-  const handlePlay = (track) => {
-    const offlineTracks = tracks;
-    const idx = offlineTracks.findIndex(t => t.id === track.id);
-    setTrack(track, offlineTracks, idx >= 0 ? idx : 0);
-  };
+  const where = isElectron ? 'на диску комп’ютера' : isNative ? 'у пам’яті застосунку' : 'у сховищі браузера';
 
-  const handleRemove = async (trackId) => {
-    await removeTrack(trackId);
-    toast.success('Видалено з офлайн-бібліотеки');
-  };
-
-  const handleClearAll = async () => {
-    if (!confirm('Видалити всі офлайн-треки? Файли будуть видалені з диска.')) return;
+  const wipe = async () => {
+    if (!window.confirm('Видалити всі офлайн-треки з цього пристрою?')) return;
     await clearAll();
-    setStorageInfo(null);
     toast.success('Офлайн-бібліотеку очищено');
   };
 
   return (
-    <div className="main-content"><div style={{ padding: '32px 32px 100px' }}>
-      <div className="page-header" style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 12,
-            background: 'linear-gradient(135deg, #0a84ff, #0040a0)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}>
-            <WifiOff size={28} color="white" />
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700 }}>Офлайн-бібліотека</h1>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 14 }}>
-              {stats.count} треків · {storageInfo ? fmtBytes(storageInfo.totalBytes) : ''}
-            </p>
-          </div>
+    <div className="page">
+      <header className="page-head">
+        <h1 className="display">Офлайн</h1>
+        <div className="page-meta">
+          <span>{tracksLabel(tracks.length)}</span>
+          {bytes > 0 && <span>{fmtBytes(bytes)}</span>}
+          {quota?.quota && <span>вільно {fmtBytes(quota.quota - (quota.usage || 0))}</span>}
+          <span style={{ color: online ? undefined : 'var(--warn)' }}>{online ? 'є мережа' : 'без мережі'}</span>
         </div>
+        <PlayActions tracks={tracks}>
+          {tracks.length > 0 && <button className="btn lg danger" onClick={wipe}><Trash2 size={18} /> Видалити все</button>}
+        </PlayActions>
+      </header>
 
-        {stats.count > 0 && (
-          <button
-            className="btn"
-            onClick={handleClearAll}
-            style={{ marginLeft: 'auto', gap: 8, color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}>
-            <Trash2 size={14} />
-            Очистити все
-          </button>
-        )}
-      </div>
-
-      {!isElectron && (
-        <div style={{ padding: '20px 24px', background: 'rgba(255,160,0,0.1)', border: '1px solid rgba(255,160,0,0.3)', borderRadius: 12, marginBottom: 24 }}>
-          <p style={{ margin: 0, fontSize: 14, color: '#ffa000' }}>
-            ⚠️ Офлайн-режим доступний лише у Electron-додатку Beatify. В браузері завантаження треків не підтримується.
-          </p>
-        </div>
-      )}
+      {!online && <div className="note warn"><WifiOff size={14} style={{ display: 'inline', verticalAlign: '-2px', marginRight: 8 }} />Мережі немає — граємо збережене. Усе інше з’явиться, щойно повернеться зв’язок.</div>}
 
       {tracks.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--text-muted)' }}>
-          <CloudDownload size={64} style={{ opacity: 0.3, marginBottom: 16 }} />
-          <p style={{ fontSize: 18, marginBottom: 8 }}>Немає офлайн-треків</p>
-          <p style={{ fontSize: 14 }}>
-            Натисніть <CloudDownload size={14} style={{ verticalAlign: 'middle' }} /> у плеєрі, щоб зберегти трек для офлайн-відтворення
-          </p>
-        </div>
+        <EmptyState
+          title="Нічого не збережено"
+          text={`Відкрийте меню «…» біля треку й оберіть «Зберегти офлайн». Файли лежать ${where} і грають без інтернету.`}
+          action={<Link className="btn primary" to="/">До каталогу</Link>}
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {tracks.map((track) => {
-            const isPlaying = currentTrack?.id === track.id;
-            const cover = track._offlineEntry?.coverUrl || null;
-
-            return (
-              <div
-                key={track.id}
-                className={`track-row ${isPlaying ? 'active' : ''}`}
-                onClick={() => handlePlay(track)}>
-
-                <div className="track-cover" style={{ position: 'relative' }}>
-                  {cover ? (
-                    <img src={cover} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
-                  ) : (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Music size={20} color="var(--text-muted)" />
-                    </div>
-                  )}
-                  <div style={{ position: 'absolute', bottom: 2, right: 2, width: 12, height: 12, borderRadius: '50%', background: '#0a84ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <WifiOff size={7} color="white" />
-                  </div>
-                </div>
-
-                <div className="track-info">
-                  <div className="track-meta">
-                    <div className="track-title">{track.title}</div>
-                    <div className="track-artist">
-                      {track.artistName}
-                      {track.albumTitle && ` · ${track.albumTitle}`}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
-                  {new Date(track._offlineEntry?.downloadedAt).toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })}
-                </div>
-
-                <div className="track-duration">{fmt(track.duration)}</div>
-
-                <button
-                  className="like-btn"
-                  onClick={(e) => { e.stopPropagation(); handleRemove(track.id); }}
-                  title="Видалити з офлайн">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+        <TrackList tracks={tracks} />
       )}
-    </div></div>
+    </div>
   );
 }

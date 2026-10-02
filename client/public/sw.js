@@ -1,76 +1,84 @@
-const CACHE = 'beatify-v2';
-const SHELL  = ['/', '/index.html', '/manifest.json', '/favicon.svg'];
+// Beatify service worker — makes the app shell instant and keeps it usable offline.
+//  • Shell + hashed assets: cache-first (they never change under the same URL)
+//  • Navigations: network-first, fall back to the cached shell (so /offline etc. open without a network)
+//  • Covers: stale-while-revalidate
+//  • Audio streams, API calls and SignalR are never touched.
+const VERSION = 'beatify-v3';
+const SHELL = `${VERSION}-shell`;
+const ASSETS = `${VERSION}-assets`;
+const COVERS = `${VERSION}-covers`;
+const PRECACHE = ['/', '/manifest.json', '/favicon.svg', '/icon-192.png'];
 
-// ── Install: cache app shell ──────────────────────────────────────────────────
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())
-  );
+  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
 });
 
-// ── Activate: remove old caches ───────────────────────────────────────────────
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
+      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
   );
 });
 
-// ── Fetch strategy ────────────────────────────────────────────────────────────
+self.addEventListener('message', (e) => { if (e.data === 'skipWaiting') self.skipWaiting(); });
+
+const isApi = (u) => u.pathname.startsWith('/api') || u.pathname.startsWith('/hubs') || u.pathname.startsWith('/healthz');
+
 self.addEventListener('fetch', (e) => {
   const { request } = e;
   if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
 
-  // Never intercept audio streams — let them flow directly
-  if (url.pathname.includes('/stream')) return;
-  // Never intercept SignalR / WebSocket upgrades
-  if (url.pathname.includes('/hubs/')) return;
-  // Cross-origin requests (CDN fonts, external thumbnails) — pass-through
+  // Cross-origin (YouTube thumbnails, Spotify art, …) and everything dynamic: hands off
   if (url.origin !== self.location.origin) return;
+  if (isApi(url) || url.pathname.includes('/stream')) return;
+  if (request.headers.has('range')) return; // media range requests
 
-  // API calls — network-first, no caching
-  // Add ngrok bypass header so the warning page never intercepts JSON/audio responses
-  if (url.pathname.startsWith('/api/')) {
-    const req = url.hostname.includes('ngrok')
-      ? new Request(request, { headers: { ...Object.fromEntries(request.headers), 'ngrok-skip-browser-warning': 'true' } })
-      : request;
-    e.respondWith(fetch(req).catch(() => new Response('', { status: 503 })));
-    return;
-  }
-
-  // Static assets — stale-while-revalidate
-  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/uploads/')) {
+  // Covers and avatars: show what we have, refresh in the background
+  if (url.pathname.startsWith('/uploads/covers') || url.pathname.startsWith('/uploads/avatars') || url.pathname.startsWith('/uploads/artists')) {
     e.respondWith(
-      caches.open(CACHE).then(async (cache) => {
-        const cached = await cache.match(request);
-        const networkFetch = fetch(request).then(res => {
-          if (res.ok) cache.put(request, res.clone());
-          return res;
-        }).catch(() => null);
-        return cached ?? networkFetch;
-      })
+      caches.open(COVERS).then(async (cache) => {
+        const hit = await cache.match(request);
+        const fresh = fetch(request).then((res) => { if (res.ok) cache.put(request, res.clone()); return res; }).catch(() => hit);
+        return hit || fresh;
+      }),
     );
     return;
   }
 
-  // App shell — cache-first, fallback to network, fallback to cached index.html
+  // Uploaded audio is large and streamed — never cache it here (offline downloads live in IndexedDB)
+  if (url.pathname.startsWith('/uploads')) return;
+
+  // Fingerprinted build output
+  if (url.pathname.startsWith('/assets/')) {
+    e.respondWith(
+      caches.open(ASSETS).then(async (cache) => {
+        const hit = await cache.match(request);
+        if (hit) return hit;
+        const res = await fetch(request);
+        if (res.ok) cache.put(request, res.clone());
+        return res;
+      }),
+    );
+    return;
+  }
+
+  // Page navigations: always try the network first so a deploy is picked up immediately
+  if (request.mode === 'navigate') {
+    e.respondWith(
+      fetch(request)
+        .then((res) => { const copy = res.clone(); caches.open(SHELL).then((c) => c.put('/', copy)); return res; })
+        .catch(async () => (await caches.match('/')) || new Response('Beatify недоступний без мережі', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })),
+    );
+    return;
+  }
+
+  // Everything else on our origin (icons, manifest, fonts): cache-first with network fill
   e.respondWith(
-    caches.match(request).then(cached => {
-      if (cached) return cached;
-      return fetch(request)
-        .then(res => {
-          if (res.ok) {
-            caches.open(CACHE).then(c => c.put(request, res.clone()));
-          }
-          return res;
-        })
-        .catch(() => caches.match('/index.html'));
-    })
+    caches.match(request).then((hit) => hit || fetch(request).then((res) => {
+      if (res.ok) caches.open(SHELL).then((c) => c.put(request, res.clone()));
+      return res;
+    })),
   );
 });
-
-// ── Background sync placeholder (for future offline queue) ───────────────────
-self.addEventListener('sync', () => {});

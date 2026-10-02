@@ -31,7 +31,9 @@ public class PlaylistsController : ControllerBase
         var playlists = await _db.Playlists
             .Include(p => p.User)
             .Include(p => p.PlaylistTracks)
-            .Where(p => p.UserId == userId || p.IsCollaborative)
+            // own playlists + collaborative playlists that are shared (public) with everyone
+            .Where(p => p.UserId == userId || (p.IsCollaborative && p.IsPublic))
+            .OrderByDescending(p => p.CreatedAt)
             .Select(p => new PlaylistDto(p.Id, p.UserId, p.User!.Name, p.Title, p.Description, p.CoverPath, p.IsPublic, p.IsCollaborative, p.PlaylistTracks.Count, p.CreatedAt))
             .ToListAsync();
         return Ok(playlists);
@@ -59,7 +61,7 @@ public class PlaylistsController : ControllerBase
         var playlist = await _db.Playlists
             .Include(p => p.User)
             .Include(p => p.PlaylistTracks)
-            .FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || p.IsPublic || p.IsCollaborative));
+            .FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || p.IsPublic));
         if (playlist == null) return NotFound();
         return Ok(new PlaylistDto(playlist.Id, playlist.UserId, playlist.User!.Name, playlist.Title, playlist.Description, playlist.CoverPath, playlist.IsPublic, playlist.IsCollaborative, playlist.PlaylistTracks.Count, playlist.CreatedAt));
     }
@@ -68,6 +70,8 @@ public class PlaylistsController : ControllerBase
     public async Task<IActionResult> GetPlaylistTracks(int id)
     {
         var userId = GetUserId();
+        var visible = await _db.Playlists.AnyAsync(p => p.Id == id && (p.UserId == userId || p.IsPublic));
+        if (!visible) return NotFound();
         var likedIds = await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync();
 
         var tracks = await _db.PlaylistTracks
@@ -81,7 +85,7 @@ public class PlaylistsController : ControllerBase
                 pt.Track.AlbumId, pt.Track.Album != null ? pt.Track.Album.Title : null,
                 pt.Track.CoverPath, pt.Track.Duration,
                 pt.Track.Genre, pt.Track.PlayCount, pt.Track.IsExplicit,
-                likedIds.Contains(pt.Track.Id), pt.Track.CreatedAt, pt.Track.Lyrics, pt.Track.MediaType))
+                likedIds.Contains(pt.Track.Id), pt.Track.CreatedAt, null, pt.Track.MediaType))
             .ToListAsync();
         return Ok(tracks);
     }
@@ -90,10 +94,12 @@ public class PlaylistsController : ControllerBase
     public async Task<IActionResult> Create([FromBody] CreatePlaylistDto dto)
     {
         var userId = GetUserId();
+        var title = (dto.Title ?? "").Trim();
+        if (title.Length == 0 || title.Length > 120) return BadRequest(new { message = "Назва плейліста від 1 до 120 символів" });
         var playlist = new Playlist
         {
             UserId = userId,
-            Title = dto.Title,
+            Title = title,
             Description = dto.Description,
             IsPublic = dto.IsPublic,
             IsCollaborative = dto.IsCollaborative
@@ -110,7 +116,7 @@ public class PlaylistsController : ControllerBase
     public async Task<IActionResult> Update(int id, [FromBody] UpdatePlaylistDto dto)
     {
         var userId = GetUserId();
-        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || p.IsCollaborative));
+        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || (p.IsCollaborative && p.IsPublic)));
         if (playlist == null) return NotFound();
 
         if (dto.Title != null && playlist.UserId == userId) playlist.Title = dto.Title;
@@ -137,7 +143,7 @@ public class PlaylistsController : ControllerBase
     public async Task<IActionResult> AddTrack(int id, [FromBody] AddTrackToPlaylistDto dto)
     {
         var userId = GetUserId();
-        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || p.IsCollaborative));
+        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || (p.IsCollaborative && p.IsPublic)));
         if (playlist == null) return NotFound();
 
         var exists = await _db.PlaylistTracks.AnyAsync(pt => pt.PlaylistId == id && pt.TrackId == dto.TrackId);
@@ -153,7 +159,7 @@ public class PlaylistsController : ControllerBase
     public async Task<IActionResult> RemoveTrack(int id, int trackId)
     {
         var userId = GetUserId();
-        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || p.IsCollaborative));
+        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || (p.IsCollaborative && p.IsPublic)));
         if (playlist == null) return NotFound();
 
         var pt = await _db.PlaylistTracks.FirstOrDefaultAsync(pt => pt.PlaylistId == id && pt.TrackId == trackId);
@@ -168,7 +174,7 @@ public class PlaylistsController : ControllerBase
     public async Task<IActionResult> Reorder(int id, [FromBody] ReorderPlaylistDto dto)
     {
         var userId = GetUserId();
-        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || p.IsCollaborative));
+        var playlist = await _db.Playlists.FirstOrDefaultAsync(p => p.Id == id && (p.UserId == userId || (p.IsCollaborative && p.IsPublic)));
         if (playlist == null) return NotFound();
 
         if (dto.TrackIds == null || dto.TrackIds.Count == 0)

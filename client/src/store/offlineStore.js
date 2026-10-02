@@ -1,79 +1,129 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { openDB } from 'idb';
 import toast from 'react-hot-toast';
+import { isElectron, isNative, streamUrl as apiStreamUrl, fileUrl } from '../lib/config';
 
-const BASE_URL = `http://${window.location.hostname}:5000`;
+// Offline copies live where the platform allows:
+//   Electron   → files on disk (IPC)         audioUrl = file URL
+//   Capacitor  → app Data directory          audioUrl = capacitor://… file URL
+//   Browser/PWA→ IndexedDB blob              audioUrl = `idb://<id>` (resolved to a blob: URL on demand)
+
+const DB_NAME = 'beatify_audio_store';
+let dbPromise = null;
+const getDB = () => {
+  dbPromise ??= openDB(DB_NAME, 1, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains('audio')) db.createObjectStore('audio');
+    },
+  });
+  return dbPromise;
+};
+
+const blobUrls = new Map(); // id → blob: URL (kept for the session)
+
+async function fetchBlob(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Сервер відповів ${res.status}`);
+  return res.blob();
+}
 
 export const useOfflineStore = create(
   persist(
     (set, get) => ({
-      // { [trackId]: { audioUrl, coverUrl, metadata, downloadedAt } }
+      // { [trackId]: { audioUrl, coverUrl, metadata, downloadedAt, size } }
       downloadedTracks: {},
-      // { [trackId]: true } — currently downloading
       downloading: {},
 
       isDownloaded: (trackId) => !!get().downloadedTracks[String(trackId)],
       isDownloading: (trackId) => !!get().downloading[String(trackId)],
 
-      getLocalAudioUrl: (trackId) => {
+      resolveAudioUrl: async (trackId) => {
         const entry = get().downloadedTracks[String(trackId)];
-        return entry?.audioUrl ?? null;
+        if (!entry?.audioUrl) return null;
+        if (!entry.audioUrl.startsWith('idb://')) return entry.audioUrl;
+        const id = String(trackId);
+        if (blobUrls.has(id)) return blobUrls.get(id);
+        try {
+          const blob = await (await getDB()).get('audio', id);
+          if (!blob) return null;
+          const url = URL.createObjectURL(blob);
+          blobUrls.set(id, url);
+          return url;
+        } catch {
+          return null;
+        }
       },
 
-      getLocalCoverUrl: (trackId) => {
-        const entry = get().downloadedTracks[String(trackId)];
-        return entry?.coverUrl ?? null;
-      },
+      getLocalCoverUrl: (trackId) => get().downloadedTracks[String(trackId)]?.coverUrl ?? null,
 
       downloadTrack: async (track) => {
         const id = String(track.id);
+        if (track.id == null) { toast('Спочатку збережіть трек у бібліотеку'); return; }
         if (get().downloading[id] || get().downloadedTracks[id]) return;
-        if (!window.electronAPI) {
-          toast.error('Офлайн-режим доступний лише в Electron-додатку');
-          return;
-        }
-
-        set(s => ({ downloading: { ...s.downloading, [id]: true } }));
+        set((s) => ({ downloading: { ...s.downloading, [id]: true } }));
 
         try {
-          const streamUrl = `${BASE_URL}/api/tracks/${track.id}/stream`;
-          const coverUrl  = track.coverPath ? `${BASE_URL}/uploads/covers/${track.coverPath}` : null;
+          const streamUrl = apiStreamUrl(track.id);
+          const coverUrl = track.coverPath ? fileUrl('covers', track.coverPath) : null;
+          let audioUrl;
+          let finalCover = coverUrl;
+          let size = 0;
 
-          const result = await window.electronAPI.downloadOffline({
-            trackId: track.id,
-            streamUrl,
-            coverUrl,
-            ext: '.mp3',
-          });
+          if (isElectron) {
+            const result = await window.electronAPI.downloadOffline({ trackId: track.id, streamUrl, coverUrl, ext: '.mp3' });
+            audioUrl = result.audioUrl;
+            finalCover = result.coverUrl ?? coverUrl;
+          } else if (isNative) {
+            const { Filesystem, Directory } = await import('@capacitor/filesystem');
+            const blob = await fetchBlob(streamUrl);
+            size = blob.size;
+            const data = await new Promise((resolve, reject) => {
+              const r = new FileReader();
+              r.onloadend = () => resolve(String(r.result).split(',')[1]);
+              r.onerror = reject;
+              r.readAsDataURL(blob);
+            });
+            const path = `tracks/offline_${id}.mp3`;
+            await Filesystem.writeFile({ path, data, directory: Directory.Data, recursive: true });
+            const { uri } = await Filesystem.getUri({ path, directory: Directory.Data });
+            const { Capacitor } = await import('@capacitor/core');
+            audioUrl = Capacitor.convertFileSrc(uri);
+          } else {
+            const blob = await fetchBlob(streamUrl);
+            size = blob.size;
+            await (await getDB()).put('audio', blob, id);
+            audioUrl = `idb://${id}`;
+          }
 
-          set(s => ({
+          set((s) => ({
             downloadedTracks: {
               ...s.downloadedTracks,
-              [id]: {
-                audioUrl: result.audioUrl,
-                coverUrl: result.coverUrl,
-                metadata: track,
-                downloadedAt: Date.now(),
-              },
+              [id]: { audioUrl, coverUrl: finalCover, metadata: track, downloadedAt: Date.now(), size },
             },
             downloading: Object.fromEntries(Object.entries(s.downloading).filter(([k]) => k !== id)),
           }));
-
-          toast.success(`"${track.title}" збережено офлайн`);
+          toast.success(`«${track.title}» збережено офлайн`);
         } catch (err) {
-          set(s => ({
-            downloading: Object.fromEntries(Object.entries(s.downloading).filter(([k]) => k !== id)),
-          }));
-          toast.error(`Помилка завантаження: ${err.message}`);
+          set((s) => ({ downloading: Object.fromEntries(Object.entries(s.downloading).filter(([k]) => k !== id)) }));
+          toast.error(`Не вдалося завантажити: ${err.message}`);
         }
       },
 
       removeTrack: async (trackId) => {
         const id = String(trackId);
-        if (window.electronAPI) {
-          try { await window.electronAPI.removeOffline({ trackId }); } catch { /* ignore */ }
-        }
-        set(s => {
+        try {
+          if (isElectron) await window.electronAPI.removeOffline({ trackId });
+          else if (isNative) {
+            const { Filesystem, Directory } = await import('@capacitor/filesystem');
+            await Filesystem.deleteFile({ path: `tracks/offline_${id}.mp3`, directory: Directory.Data });
+          } else {
+            await (await getDB()).delete('audio', id);
+            const u = blobUrls.get(id);
+            if (u) { URL.revokeObjectURL(u); blobUrls.delete(id); }
+          }
+        } catch { /* already gone */ }
+        set((s) => {
           const next = { ...s.downloadedTracks };
           delete next[id];
           return { downloadedTracks: next };
@@ -81,23 +131,21 @@ export const useOfflineStore = create(
       },
 
       clearAll: async () => {
-        const ids = Object.keys(get().downloadedTracks);
-        if (window.electronAPI) {
-          for (const id of ids) {
-            try { await window.electronAPI.removeOffline({ trackId: id }); } catch { /* ignore */ }
-          }
-        }
+        for (const id of Object.keys(get().downloadedTracks)) await get().removeTrack(id);
         set({ downloadedTracks: {} });
       },
 
       getStats: () => {
         const tracks = Object.values(get().downloadedTracks);
-        return { count: tracks.length, oldest: tracks.length ? Math.min(...tracks.map(t => t.downloadedAt)) : null };
+        return {
+          count: tracks.length,
+          bytes: tracks.reduce((a, t) => a + (t.size || 0), 0),
+          oldest: tracks.length ? Math.min(...tracks.map((t) => t.downloadedAt)) : null,
+        };
       },
     }),
     {
       name: 'beatify-offline',
-      // Only persist downloadedTracks, not the transient downloading map
       partialize: (s) => ({ downloadedTracks: s.downloadedTracks }),
     }
   )

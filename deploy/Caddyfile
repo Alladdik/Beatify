@@ -1,0 +1,15 @@
+# Beatify behind Caddy: automatic HTTPS certificates, HTTP/3, compression.
+# DOMAIN comes from deploy/.env (e.g. music.example.com) and must point at this server.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# tracks and videos can be large
+	request_body {
+		max_size 512MB
+	}
+
+	reverse_proxy app:5000 {
+		# audio streaming and SignalR (WebSocket) must not be buffered
+		flush_interval -1
+	}
+}

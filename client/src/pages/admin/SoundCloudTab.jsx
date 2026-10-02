@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { externalSearchApi, downloadApi } from '../../api';
 import {
   Search, Loader2, Download, Music, User, CheckCircle2, AlertCircle,
@@ -12,9 +12,9 @@ function fmt(s) {
 }
 
 function DownloadStatus({ status }) {
-  if (status === 'done')        return <CheckCircle2 size={16} color="#1db954" />;
-  if (status === 'error')       return <AlertCircle  size={16} color="#ef4444" />;
-  if (status === 'downloading') return <Loader2      size={16} style={{ animation: 'spin 1s linear infinite', color: '#facc15' }} />;
+  if (status === 'done')        return <CheckCircle2 size={16} color="var(--accent-text)" />;
+  if (status === 'error')       return <AlertCircle  size={16} color="var(--danger)" />;
+  if (status === 'downloading') return <Loader2      size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--warn)' }} />;
   return null;
 }
 
@@ -72,7 +72,7 @@ export default function SoundCloudTab() {
       });
       setDlStatuses(s => ({ ...s, [key]: 'done' }));
       return true;
-    } catch (err) {
+    } catch {
       setDlStatuses(s => ({ ...s, [key]: 'error' }));
       return false;
     }
@@ -119,7 +119,7 @@ export default function SoundCloudTab() {
                   background: type === t ? 'var(--accent)' : 'var(--bg-hover)',
                   color: type === t ? '#000' : 'var(--text-secondary)',
                 }}>
-                {t === 'tracks' ? '🎵 Треки' : '❤️ Вподобані'}
+                {t === 'tracks' ? 'Треки' : '❤️ Вподобані'}
               </button>
             ))}
           </div>

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using BeatifyServer.Data;
 using BeatifyServer.DTOs;
 using BeatifyServer.Models;
+using BeatifyServer.Services;
 
 namespace BeatifyServer.Controllers;
 
@@ -13,43 +14,46 @@ public class ArtistsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly RecommendationService _rec;
 
-    public ArtistsController(AppDbContext db, IWebHostEnvironment env)
+    public ArtistsController(AppDbContext db, IWebHostEnvironment env, RecommendationService rec)
     {
         _db = db;
         _env = env;
+        _rec = rec;
     }
+
+    private int? UserId => int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var artists = await _db.Artists
-            .Include(a => a.Tracks)
-            .Select(a => new ArtistDto(a.Id, a.Name, a.ImagePath, a.Bio, a.Genre, a.MonthlyListeners, a.Tracks.Count))
-            .ToListAsync();
-        return Ok(artists);
+        var ids = await _db.Artists.OrderBy(a => a.Name).Select(a => a.Id).ToListAsync();
+        return Ok(await _rec.ArtistCardsAsync(ids));
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
-        var artist = await _db.Artists.Include(a => a.Tracks).Include(a => a.Albums).FirstOrDefaultAsync(a => a.Id == id);
-        if (artist == null) return NotFound();
-        return Ok(new ArtistDto(artist.Id, artist.Name, artist.ImagePath, artist.Bio, artist.Genre, artist.MonthlyListeners, artist.Tracks.Count));
+        var artist = (await _rec.ArtistCardsAsync(new List<int> { id })).FirstOrDefault();
+        return artist == null ? NotFound() : Ok(artist);
     }
+
+    [HttpGet("{id}/similar")]
+    public async Task<IActionResult> Similar(int id, [FromQuery] int limit = 10) =>
+        Ok(await _rec.SimilarArtistsAsync(id, Math.Clamp(limit, 1, 30)));
 
     [HttpGet("{id}/tracks")]
     public async Task<IActionResult> GetArtistTracks(int id)
     {
-        var tracks = await _db.Tracks
+        var liked = await _rec.LikedIdsAsync(UserId);
+        var tracks = await _db.Tracks.AsNoTracking()
             .Include(t => t.Artist)
             .Include(t => t.Album)
             .Where(t => t.ArtistId == id)
             .OrderByDescending(t => t.PlayCount)
-            .Select(t => new TrackDto(t.Id, t.Title, t.ArtistId, t.Artist!.Name, t.AlbumId, t.Album != null ? t.Album.Title : null,
-                t.CoverPath, t.Duration, t.Genre, t.PlayCount, t.IsExplicit, false, t.CreatedAt, t.Lyrics, t.MediaType))
             .ToListAsync();
-        return Ok(tracks);
+        return Ok(tracks.Select(t => RecommendationService.ToDto(t, liked)));
     }
 
     [HttpGet("{id}/albums")]

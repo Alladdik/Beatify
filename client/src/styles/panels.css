@@ -1,0 +1,98 @@
+/* ═══ Dock panels, now-playing, floating players, misc overlays ═══ */
+
+/* ── Queue ── */
+.queue { display: flex; flex-direction: column; gap: var(--s-4); padding: var(--s-4); }
+.queue-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.queue-sec { display: flex; flex-direction: column; gap: 4px; }
+.queue-sec-head { display: flex; align-items: center; justify-content: space-between; }
+.qitem { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 0; border-radius: var(--r-2); background: var(--bg); }
+.qitem:hover { background: var(--hover); }
+.qitem.dragging { z-index: 5; background: var(--bg-3); box-shadow: var(--shadow-pop); }
+.qgrip { cursor: grab; touch-action: none; opacity: 0.5; }
+.qitem:hover .qgrip { opacity: 1; }
+.qmain { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; }
+.qtext { display: flex; flex-direction: column; min-width: 0; }
+.qtitle { font-size: 0.88rem; font-weight: 520; }
+.qsub { font-size: 0.75rem; color: var(--fg-3); display: flex; align-items: center; }
+.qtime { font-size: 0.68rem; }
+.qitem.current .qtitle { color: var(--accent-text); }
+
+/* ── Lyrics ── */
+.lyrics { display: flex; flex-direction: column; gap: 2px; padding: var(--s-4) 0; overflow-y: auto; height: 100%; }
+.lyric { text-align: left; padding: 6px 0; font-size: 1.05rem; line-height: 1.35; font-weight: 520; color: var(--fg-2); transition: color var(--dur-2) var(--ease), transform var(--dur-3) var(--ease), opacity var(--dur-2); transform-origin: left center; cursor: default; }
+.lyrics.synced .lyric { color: var(--fg-3); opacity: 0.75; cursor: pointer; }
+.lyrics.synced .lyric.past { opacity: 0.55; }
+.lyrics.synced .lyric.on { color: var(--fg); opacity: 1; transform: scale(1.03); font-weight: 650; }
+.lyrics.large .lyric { font-size: clamp(1.4rem, 1rem + 1.6vw, 2.3rem); font-weight: 400; font-stretch: 112%; letter-spacing: -0.02em; line-height: 1.2; padding: 8px 0; }
+.lyrics.large.synced .lyric.on { font-weight: 560; }
+.lyrics-state { display: flex; flex-direction: column; gap: 12px; padding: var(--s-5) 0; }
+
+/* ── Sound panel ── */
+.sound { display: flex; flex-direction: column; }
+.sound-spectrum { padding: var(--s-4) var(--s-4) 0; }
+.sound-body { padding: var(--s-4); display: flex; flex-direction: column; }
+.sound-group { display: flex; flex-direction: column; }
+.mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.mode-text { display: flex; flex-direction: column; min-width: 0; }
+.mode-name { font-size: 0.9rem; font-weight: 520; }
+.mode-note { font-size: 0.66rem; color: var(--fg-3); margin-top: 2px; }
+.orbit { position: relative; width: 148px; height: 148px; border: 1px solid var(--line-2); border-radius: 50%; cursor: crosshair; touch-action: none; user-select: none; transition: border-color var(--dur-2); }
+.orbit.on { border-color: var(--accent-line); }
+.orbit:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.orbit.drag { cursor: grabbing; }
+.orbit-ring { position: absolute; inset: 25%; border: 1px dashed var(--line); border-radius: 50%; pointer-events: none; }
+.orbit-h, .orbit-v { position: absolute; background: var(--line); pointer-events: none; }
+.orbit-h { left: 6px; right: 6px; top: 50%; height: 1px; }
+.orbit-v { top: 6px; bottom: 6px; left: 50%; width: 1px; }
+.orbit-tag { position: absolute; font: 500 0.56rem/1 var(--font-mono); letter-spacing: 0.04em; color: var(--fg-4); pointer-events: none; }
+.orbit-tag.t { top: 7px; left: 50%; transform: translateX(-50%); }
+.orbit-tag.b { bottom: 7px; left: 50%; transform: translateX(-50%); }
+.orbit-tag.l { left: 8px; top: 50%; transform: translateY(-50%); }
+.orbit-tag.r { right: 8px; top: 50%; transform: translateY(-50%); }
+.orbit-head { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 1px solid var(--fg-4); border-radius: 50%; pointer-events: none; }
+.orbit-dot { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; background: var(--accent); border-radius: 2px; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 0 0 4px var(--accent-soft); }
+.sound .axis.inline { border-bottom: 0; padding: 0; }
+.eq { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; }
+.eq[data-disabled] { opacity: 0.45; pointer-events: none; }
+.eq-band { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.eq-val { font-size: 0.62rem; color: var(--fg-2); }
+.eq-hz { font-size: 0.62rem; }
+
+/* ── Devices ── */
+.device { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--r-2); margin-bottom: 8px; font-size: 0.88rem; }
+.device.on { border-color: var(--accent-line); color: var(--accent-text); }
+
+/* ── Now playing ── */
+.np-transport { display: flex; align-items: center; justify-content: space-between; }
+.np-artist a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.scrub.inline { position: absolute; left: 0; right: 0; top: 0; }
+.np .scrub.inline::before, .mini-float .scrub.inline::before { top: 6px; }
+.np .scrub.inline .scrub-fill, .mini-float .scrub.inline .scrub-fill { top: 6px; }
+
+/* ── Floating mini player (in-app) ── */
+.mini-float {
+  position: fixed; z-index: 1100; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop); animation: pop var(--dur-3) var(--ease);
+}
+.mini-grip { display: flex; align-items: center; gap: 10px; padding: 12px 8px 8px 12px; cursor: grab; touch-action: none; }
+.mini-grip:active { cursor: grabbing; }
+
+/* ── Electron mini window ── */
+.mini-win { position: relative; display: flex; height: 100vh; background: #0c0c10; color: #ecebf2; border: 1px solid rgb(255 255 255 / 0.14); border-radius: 10px; overflow: hidden; -webkit-app-region: drag; user-select: none; }
+.mini-win-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 12px 10px 14px 12px; }
+.mini-win-ctl { display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
+.mini-win-ctl button { width: 30px; height: 30px; display: grid; place-items: center; color: inherit; border-radius: 4px; }
+.mini-win-ctl button:hover { background: rgb(255 255 255 / 0.1); }
+.mini-win-ctl .main { background: var(--accent); color: var(--on-accent); }
+.mini-win-ctl .close { margin-left: auto; opacity: 0.5; }
+.mini-win-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgb(255 255 255 / 0.12); }
+.mini-win-bar > div { height: 100%; background: var(--accent); }
+
+/* ── Download queue indicator ── */
+.dl-indicator { position: fixed; left: 16px; bottom: calc(var(--player-h) + 16px); z-index: 790; width: 300px; background: var(--bg-1); border: 1px solid var(--line-2); border-radius: var(--r-3); box-shadow: var(--shadow-pop); overflow: hidden; }
+.dl-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.dl-bar { height: 2px; background: var(--line); margin: 0 12px; }
+.dl-bar > div { height: 100%; background: var(--accent); transform-origin: left; transition: transform var(--dur-3) var(--ease); }
+@media (max-width: 760px) { .dl-indicator { left: 8px; right: 8px; width: auto; bottom: calc(var(--player-h) + var(--tabbar-h) + var(--safe-bottom) + 14px); } }
+
+/* ── Toast theming comes from Toaster props ── */

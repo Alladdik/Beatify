@@ -1,84 +1,100 @@
 # Деплой Beatify на VPS
 
-Усе працює через Docker: PostgreSQL + .NET сервер (з ffmpeg і yt-dlp всередині) + зібраний React-клієнт. Nginx на VPS проксіює трафік і дає HTTPS.
+Усе працює через Docker: PostgreSQL + .NET сервер (з ffmpeg і yt-dlp всередині) + зібраний React-клієнт в одному образі. Для HTTPS є готовий Caddy (сертифікати Let's Encrypt випускаються й оновлюються самі) або приклад конфігу nginx.
 
 ## Що в папці
 
 | Файл | Призначення |
 |---|---|
-| `Dockerfile` | Збірка образу: клієнт (Vite) + сервер (.NET 10) + ffmpeg + yt-dlp |
-| `docker-compose.yml` | PostgreSQL + застосунок, томи для БД і завантажених треків |
-| `.env.example` | Шаблон секретів → скопіюй у `deploy/.env` |
-| `deploy.sh` | **Перший запуск на VPS** (ставить Docker, генерує секрети, запускає) |
-| `update.sh` | **Оновлення на VPS** (перезбірка + перезапуск) |
-| `upload.ps1` | **Завантаження коду з Windows на VPS** одною командою |
-| `nginx.conf` | Приклад конфігу nginx (reverse proxy + WebSocket для SignalR) |
+| `Dockerfile` | Збірка образу: клієнт (Vite) → сервер (.NET 10) → ffmpeg + yt-dlp. Є `HEALTHCHECK` на `/healthz` |
+| `docker-compose.yml` | PostgreSQL + застосунок (+ Caddy за профілем `https`), томи для БД, треків і проєктів Студії |
+| `Caddyfile` | HTTPS, HTTP/3, стиснення; не буферизує стрімінг аудіо й WebSocket (SignalR) |
+| `.env.example` | Шаблон налаштувань → копіюється в `deploy/.env` |
+| `deploy.sh` | **Перший запуск на VPS**: ставить Docker, генерує секрети, запускає (за потреби з доменом) |
+| `update.sh` | **Оновлення на VPS**: перезбірка й перезапуск |
+| `upload.ps1` | **Завантаження коду з Windows на VPS** однією командою |
+| `nginx.conf` | Альтернатива Caddy: reverse proxy + WebSocket для nginx |
 
 ## Перший деплой
 
+Потрібен VPS з Ubuntu/Debian (від 2 ГБ RAM для першої збірки), доступ по SSH. Для HTTPS — домен з A-записом на IP сервера й відкриті порти 80 та 443.
+
 ```powershell
-# 1. На Windows — завантаж код на VPS (без оновлення, бо ще нема .env):
+# 1. З Windows: завантажити код на VPS (без запуску, бо ще немає .env)
 .\deploy\upload.ps1 -Server root@ТВІЙ_IP -SkipUpdate
 ```
 
 ```bash
-# 2. На VPS — перший запуск (Docker + секрети + старт):
+# 2. На VPS: перший запуск
 ssh root@ТВІЙ_IP
 cd /opt/beatify
-bash deploy/deploy.sh
-# Сайт доступний на http://ТВІЙ_IP:5000
+
+bash deploy/deploy.sh                    # без домену → http://ТВІЙ_IP:5000
+bash deploy/deploy.sh music.example.com  # з доменом → https://music.example.com
 ```
 
-```bash
-# 3. (Опційно) nginx + домен + HTTPS:
-sudo apt install -y nginx certbot python3-certbot-nginx
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/beatify   # заміни server_name!
-sudo ln -s /etc/nginx/sites-available/beatify /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d your-domain.com
-```
+> **Зареєструйтесь першим.** Перший акаунт на сервері автоматично стає адміністратором (він додає музику, імпортує зі Spotify/YouTube/SoundCloud). Потім за бажанням закрийте реєстрацію: `ALLOW_REGISTRATION=false` у `deploy/.env` і `bash deploy/update.sh`. Екран входу сам сховає «Створити акаунт».
 
 ## Оновлення (кожен наступний раз)
 
-Одна команда з Windows — пакує код, заливає, перезбирає і перезапускає:
+Одна команда з Windows пакує код, заливає, перезбирає й перезапускає:
 
 ```powershell
 .\deploy\upload.ps1 -Server root@ТВІЙ_IP
 ```
 
-Або вручну на VPS:
+Або вручну на VPS: `cd /opt/beatify && bash deploy/update.sh`. Дані (база, треки, проєкти) лежать у томах і переживають оновлення. Міграції бази застосовуються самі під час старту.
 
-```bash
-cd /opt/beatify && bash deploy/update.sh
-```
+## Налаштування (`deploy/.env`)
 
-## Корисні команди на VPS
+| Змінна | Що робить |
+|---|---|
+| `POSTGRES_PASSWORD`, `JWT_KEY` | Секрети; `deploy.sh` генерує їх випадково один раз |
+| `APP_PORT`, `APP_BIND` | Порт і інтерфейс прямого доступу (з доменом `deploy.sh` ставить `127.0.0.1`, щоб назовні дивився лише Caddy) |
+| `DOMAIN`, `COMPOSE_PROFILES=https` | Домен і вмикання Caddy |
+| `ALLOW_REGISTRATION` | `false` — закрита реєстрація |
+| `CORS_ORIGINS` | Для мобільного/десктопного застосунку, що підключається до цього сервера (через кому). Порожньо — усі |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Необов'язково: ключі для імпорту Spotify |
+
+Після зміни `.env`: `bash deploy/update.sh`.
+
+## Корисні команди
 
 ```bash
 cd /opt/beatify
+C="docker compose -f deploy/docker-compose.yml"
 
-# Логи сервера (живі)
-docker compose -f deploy/docker-compose.yml logs -f app
+$C logs -f app                 # живі логи сервера
+$C ps                          # статус і healthcheck
+$C restart app                 # перезапуск без перезбірки
+$C down                        # зупинити (дані лишаються)
+curl -fsS localhost:5000/healthz
 
-# Статус контейнерів
-docker compose -f deploy/docker-compose.yml ps
+# Бекап бази
+$C exec db pg_dump -U beatify beatify > backup_$(date +%F).sql
+# Відновлення
+$C exec -T db psql -U beatify beatify < backup_2026-01-01.sql
 
-# Перезапуск без перезбірки
-docker compose -f deploy/docker-compose.yml restart app
-
-# Повна зупинка / запуск
-docker compose -f deploy/docker-compose.yml down
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
-
-# Бекап бази даних
-docker compose -f deploy/docker-compose.yml exec db pg_dump -U beatify beatify > backup_$(date +%F).sql
-
-# Бекап завантажених треків (том uploads)
+# Бекап завантажених треків і проєктів Студії
 docker run --rm -v beatify_uploads:/data -v $(pwd):/backup alpine tar czf /backup/uploads_$(date +%F).tar.gz -C /data .
+docker run --rm -v beatify_studio:/data  -v $(pwd):/backup alpine tar czf /backup/studio_$(date +%F).tar.gz  -C /data .
 ```
 
-## Дані
+## Дані й томи
 
-- **База даних** — Docker-том `beatify_pgdata` (переживає перезбірки й оновлення)
-- **Треки/обкладинки** — Docker-том `beatify_uploads`
-- **Секрети** — `deploy/.env` (не комітиться в git, генерується `deploy.sh`)
+| Том | Вміст |
+|---|---|
+| `beatify_pgdata` | PostgreSQL |
+| `beatify_uploads` | треки, обкладинки, аватари |
+| `beatify_studio` | проєкти Студії (JSON, по папці на користувача) |
+| `beatify_caddy_data` | сертифікати HTTPS |
+
+## nginx замість Caddy
+
+Якщо на сервері вже стоїть nginx: залиште `COMPOSE_PROFILES` порожнім, візьміть `nginx.conf` (замініть `server_name`), потім `sudo certbot --nginx -d your-domain.com`. Сервер довіряє заголовкам `X-Forwarded-*`, тож реальні IP й `https` визначаються правильно.
+
+## Якщо щось не так
+
+- **Сайт не відкривається з домену** — перевірте A-запис, відкриті порти 80/443 і `$C logs caddy`.
+- **Імпорт з YouTube/SoundCloud не працює** — оновіть образ (`bash deploy/update.sh`): під час збірки підтягується свіжий yt-dlp.
+- **Контейнер `app` перезапускається** — `$C logs app`: найчастіше це `Jwt__Key` коротший за 32 символи або недоступна база.

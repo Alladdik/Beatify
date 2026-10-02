@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { API_URL } from '../lib/config';
 
 function isExpired(token) {
   try {
@@ -61,7 +62,7 @@ export const useAuthStore = create((set, get) => ({
     const { token, logout } = get();
     if (!token) return;
     try {
-      const res = await fetch(`http://${window.location.hostname}:5000/api/auth/me`, {
+      const res = await fetch(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
@@ -71,7 +72,7 @@ export const useAuthStore = create((set, get) => ({
         localStorage.setItem('beatify_user', JSON.stringify(user));
         set({ user, isAuthenticated: true });
       }
-    } catch (err) {
+    } catch {
       // Network error or server down, do not logout
     }
   },

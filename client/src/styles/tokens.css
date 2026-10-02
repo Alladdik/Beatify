@@ -1,0 +1,154 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Beatify — tokens
+   World: variable font specimen. Two grounds (Lab / Plate), one accent that
+   is borrowed from the playing cover (hue + chroma written by JS), two faces.
+   `.tint` re-derives the accent locally (album / artist pages use their own cover).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@property --accent-h { syntax: '<number>'; inherits: true; initial-value: 292; }
+@property --accent-c { syntax: '<number>'; inherits: true; initial-value: 0.13; }
+
+:root {
+  transition: --accent-h 900ms cubic-bezier(0.16, 1, 0.3, 1), --accent-c 900ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* ── Faces ── */
+  --font-sans: 'Roboto Flex Variable', 'Roboto Flex', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Martian Mono Variable', 'Martian Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+
+  
+  /* ── Type scale (hierarchy by scale contrast) ── */
+  --t-display: clamp(2.5rem, 1.2rem + 5.4vw, 6rem);   /* ≤ 96px */
+  --t-h1: clamp(2rem, 1.2rem + 3vw, 3.75rem);
+  --t-h2: clamp(1.25rem, 1.1rem + 0.6vw, 1.625rem);
+  --t-h3: 1.0625rem;
+  --t-body: 0.9375rem;
+  --t-sm: 0.8125rem;
+  --t-xs: 0.6875rem;
+
+  /* ── Space (4px grid) ── */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 72px;
+
+  /* ── Radii: specimen = square. Only artists are circles. ── */
+  --r-0: 0;
+  --r-1: 2px;
+  --r-2: 4px;
+  --r-3: 8px;
+  --r-round: 999px;
+
+  /* ── Layout ── */
+  --rail-w: 248px;
+  --dock-w: 360px;
+  --player-h: 80px;
+  --tabbar-h: 58px;
+  --titlebar-h: 0px;
+  --sheet-pad: clamp(16px, 3vw, 48px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* ── Motion ── */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 120ms;
+  --dur-2: 220ms;
+  --dur-3: 420ms;
+
+  /* ── Lab (dark) — the default ── */
+  color-scheme: dark;
+  --bg:        #0c0c10;
+  --bg-1:      #111116;
+  --bg-2:      #181820;
+  --bg-3:      #21212b;
+  --line:      rgb(255 255 255 / 0.09);
+  --line-2:    rgb(255 255 255 / 0.17);
+  --fg:        #ecebf2;
+  --fg-2:      rgb(236 235 242 / 0.72);
+  --fg-3:      rgb(236 235 242 / 0.54);
+  --fg-4:      rgb(236 235 242 / 0.28);
+  --scrim:     rgb(6 6 10 / 0.72);
+
+  --ok:     #6fd7a2;
+  --warn:   #f0bd5a;
+  --danger: #ff7a7a;
+
+  --shadow-pop: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+/* ── Plate (light) ── */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg:        #f4f4f6;
+  --bg-1:      #fbfbfc;
+  --bg-2:      #ebebee;
+  --bg-3:      #e0e0e5;
+  --line:      rgb(20 20 30 / 0.12);
+  --line-2:    rgb(20 20 30 / 0.24);
+  --fg:        #14141a;
+  --fg-2:      rgb(20 20 26 / 0.76);
+  --fg-3:      rgb(20 20 26 / 0.62);
+  --fg-4:      rgb(20 20 26 / 0.32);
+  --scrim:     rgb(244 244 246 / 0.78);
+
+  --ok:     #12805a;
+  --warn:   #9a6700;
+  --danger: #c4261d;
+
+  --shadow-pop: 0 12px 32px -10px rgb(20 20 40 / 0.28), 0 2px 6px rgb(20 20 40 / 0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme='system'] {
+    color-scheme: light;
+    --bg: #f4f4f6; --bg-1: #fbfbfc; --bg-2: #ebebee; --bg-3: #e0e0e5;
+    --line: rgb(20 20 30 / 0.12); --line-2: rgb(20 20 30 / 0.24);
+    --fg: #14141a; --fg-2: rgb(20 20 26 / 0.76); --fg-3: rgb(20 20 26 / 0.62); --fg-4: rgb(20 20 26 / 0.32);
+    --scrim: rgb(244 244 246 / 0.78);
+    --ok: #12805a; --warn: #9a6700; --danger: #c4261d;
+    --shadow-pop: 0 12px 32px -10px rgb(20 20 40 / 0.28), 0 2px 6px rgb(20 20 40 / 0.12);
+  }
+}
+
+/* ── Accent derivation. Re-declared on `.tint` so a page can wear its own cover's colour. ── */
+:root, .tint {
+  --accent:      oklch(0.8 var(--accent-c) var(--accent-h));
+  --accent-text: oklch(0.82 var(--accent-c) var(--accent-h));
+  --on-accent:   #0c0c10;
+}
+:root[data-theme='light'], :root[data-theme='light'] .tint {
+  --accent:      oklch(0.6 var(--accent-c) var(--accent-h));
+  --accent-text: oklch(0.46 var(--accent-c) var(--accent-h));
+  --on-accent:   #ffffff;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme='system'], :root[data-theme='system'] .tint {
+    --accent:      oklch(0.6 var(--accent-c) var(--accent-h));
+    --accent-text: oklch(0.46 var(--accent-c) var(--accent-h));
+    --on-accent:   #ffffff;
+  }
+}
+
+:root, .tint {
+  --accent-wash:  color-mix(in oklab, var(--accent) 11%, var(--bg));
+  --accent-soft:  color-mix(in oklab, var(--accent) 16%, transparent);
+  --accent-line:  color-mix(in oklab, var(--accent) 44%, transparent);
+}
+:root {
+  --hover: color-mix(in oklab, var(--fg) 6%, transparent);
+  --press: color-mix(in oklab, var(--fg) 11%, transparent);
+}
+
+[data-electron] { --titlebar-h: 36px; }
+
+@media (max-width: 760px) {
+  :root { --player-h: 64px; }
+}
+
+/* ── Legacy aliases: operator tools (admin) were written against the old token names ── */
+:root {
+  --text-primary: var(--fg); --text-secondary: var(--fg-2); --text-muted: var(--fg-3);
+  --bg-base: var(--bg); --bg-surface: var(--bg-1); --bg-elevated: var(--bg-1); --bg-hover: var(--hover);
+  --border: var(--line); --border-strong: var(--line-2);
+  --accent-dim: var(--accent); --accent-glow: transparent; --accent-bright: var(--accent);
+  --purple: var(--accent-text); --blue: var(--accent-text); --pink: var(--danger); --orange: var(--warn); --teal: var(--accent-text); --gold: var(--warn);
+  --player-height: var(--player-h); --titlebar-height: var(--titlebar-h);
+  --radius: var(--r-3); --radius-sm: var(--r-2); --radius-lg: var(--r-3); --radius-pill: var(--r-2);
+}

@@ -1,17 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { tracksApi, apiBase } from '../api';
-
-function getOfflineAudioUrl(trackId) {
-  try {
-    const raw = localStorage.getItem('beatify-offline');
-    if (!raw) return null;
-    const state = JSON.parse(raw);
-    return state?.state?.downloadedTracks?.[String(trackId)]?.audioUrl ?? null;
-  } catch {
-    return null;
-  }
-}
+import toast from 'react-hot-toast';
+import { tracksApi, externalSearchApi, discoverApi } from '../api';
+import { useAuthStore } from './authStore';
+import { useOfflineStore } from './offlineStore';
+import { isExternal, normalizeExternal, trackKey } from '../lib/tracks';
 
 // Single audio element — module-level singleton, never serialized to localStorage
 const _audio = new Audio();
@@ -105,7 +98,7 @@ function createReverbBuffer(ctx, duration, decay) {
   const right      = impulse.getChannelData(1);
 
   let lpL = 0, lpR = 0;
-  let apL = 0, apR = 0; // all-pass state for decorrelation
+  let apR = 0; // all-pass state for decorrelation
 
   // Early reflection tap offsets in samples (room modes ~5–30ms)
   const erTaps = [
@@ -199,7 +192,7 @@ function stopCrackle() {
   if (_crackleSource) {
     try {
       _crackleSource.stop();
-    } catch {}
+    } catch { /* already stopped */ }
     _crackleSource.disconnect();
     _crackleSource = null;
   }
@@ -288,6 +281,37 @@ function startEffectsAnimation() {
     _effectsAnimationId = requestAnimationFrame(update);
   };
   _effectsAnimationId = requestAnimationFrame(update);
+}
+
+// ─── Manual placement ───────────────────────────────────────────────────────
+// `pos` is normalised: x/z inside the unit disk (z < 0 = in front of the head),
+// h in [-1, 1] (below / above). The whole disk is usable — the radius is the
+// distance from the head, so the sound can sit right at the ear or far away.
+const MANUAL_REACH = 6;     // metres at the edge of the pad
+const MANUAL_HEIGHT = 3;    // metres at the top / bottom of the height slider
+const MANUAL_MIN_DIST = 0.35; // HRTF collapses to mono at exactly 0
+
+function manualWorldPosition(pos) {
+  let x = pos.x * MANUAL_REACH;
+  let z = pos.z * MANUAL_REACH;
+  const y = (pos.h || 0) * MANUAL_HEIGHT;
+  const d = Math.hypot(x, y, z);
+  if (d < MANUAL_MIN_DIST) {
+    if (d === 0) { z = -MANUAL_MIN_DIST; } else { const k = MANUAL_MIN_DIST / d; x *= k; z *= k; }
+  }
+  return { x, y: y, z };
+}
+
+function applyManualPanner(pos, tc = 0.05) {
+  if (!_panner || !_audioCtx) return;
+  const { x, y, z } = manualWorldPosition(pos);
+  if (_panner.positionX) {
+    _panner.positionX.setTargetAtTime(x, _audioCtx.currentTime, tc);
+    _panner.positionY.setTargetAtTime(y, _audioCtx.currentTime, tc);
+    _panner.positionZ.setTargetAtTime(z, _audioCtx.currentTime, tc);
+  } else if (typeof _panner.setPosition === 'function') {
+    _panner.setPosition(x, y, z);
+  }
 }
 
 export function getPannerPosition() {
@@ -450,18 +474,26 @@ function applyAudioEffects(state) {
   }
 
   // ─── 4b. Center Panner if spatial inactive ──────────────────────────────────
+  if (_panner) {
+    // Free placement lets the sound sit far away; a gentler rolloff keeps "far" audible.
+    _panner.rolloffFactor = state.isManualPanning ? 0.45 : 1;
+  }
   if (!is8DActive && !isDouble8DActive && _panner) {
-    const setP = (p, x, y, z) => {
-      if (p.positionX) {
-        p.positionX.setTargetAtTime(x, now, 0.08);
-        p.positionY.setTargetAtTime(y, now, 0.08);
-        p.positionZ.setTargetAtTime(z, now, 0.08);
-      } else if (typeof p.setPosition === 'function') {
-        p.setPosition(x, y, z);
-      }
-    };
-    setP(_panner, 0, 0, 1);
-    if (_panner2) setP(_panner2, 0, 0, -1);
+    if (state.isManualPanning && state.manualPos) {
+      applyManualPanner(state.manualPos, 0.08);
+    } else {
+      const setP = (p, x, y, z) => {
+        if (p.positionX) {
+          p.positionX.setTargetAtTime(x, now, 0.08);
+          p.positionY.setTargetAtTime(y, now, 0.08);
+          p.positionZ.setTargetAtTime(z, now, 0.08);
+        } else if (typeof p.setPosition === 'function') {
+          p.setPosition(x, y, z);
+        }
+      };
+      setP(_panner, 0, 0, 1);
+      if (_panner2) setP(_panner2, 0, 0, -1);
+    }
   }
 
   // ─── 5. SUB-BASS (50Hz precise peaking) ─────────────────────────────────────
@@ -855,48 +887,11 @@ const applyEqBands = (bands) => {
   });
 };
 
-// Auto-fetch lyrics in background when a track starts playing
-async function autoFetchLyrics(track) {
-  if (track?.lyrics) return;
-  const title = track?.title || '';
-  const artist = track?.artistName || track?.artist || '';
-  if (!title) return;
-  try {
-    const { externalSearchApi } = await import('../api');
-    // Use the base URL since we're in store
-    const res = await fetch(
-      `${apiBase}/externalsearch/fetchlyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
-      { headers: { 'Content-Type': 'application/json' } }
-    );
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data?.found || !data?.lyrics) return;
 
-    const curr = usePlayerStore.getState().currentTrack;
-    const isSame = track.id
-      ? curr?.id === track.id
-      : curr?.externalUrl === track.externalUrl;
-    if (!isSame) return;
-
-    usePlayerStore.setState(s => ({
-      currentTrack: s.currentTrack ? { ...s.currentTrack, lyrics: data.lyrics } : null
-    }));
-
-    // Save to backend for local tracks
-    if (track.id && !track.isExternal) {
-      const token = (() => { try { const raw = localStorage.getItem('beatify-auth'); return raw ? JSON.parse(raw)?.state?.token : null; } catch { return null; } })();
-      if (token) {
-        const fd = new FormData();
-        fd.append('Lyrics', data.lyrics);
-        fetch(`${apiBase}/tracks/${track.id}`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-          body: fd,
-        }).catch(() => {});
-      }
-    }
-  } catch {}
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// Playback store — queue, transport, persistence. Audio events are wired once,
+// here, so playback never depends on a component being mounted.
+// ═══════════════════════════════════════════════════════════════════════════
 
 // Debounced localStorage writer so rapid progress updates don't thrash disk
 let _saveTimer = null;
@@ -905,18 +900,40 @@ const debouncedStorage = {
   removeItem: (key) => localStorage.removeItem(key),
   setItem:    (key, value) => {
     clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(() => localStorage.setItem(key, value), 800);
+    _saveTimer = setTimeout(() => { try { localStorage.setItem(key, value); } catch { /* quota */ } }, 800);
   },
 };
 
-async function fetchRadioTracks(trackId) {
-  try {
-    const { externalSearchApi } = await import('../api');
-    const res = await externalSearchApi.radio(trackId, 5);
-    return Array.isArray(res.data) ? res.data : [];
-  } catch {
-    return [];
+let _playToken = 0;           // invalidates stale async loads when the user skips quickly
+let _loggedPlay = false;      // play counted once per listen (≥30 s or half the track)
+let _consecutiveErrors = 0;
+const _played = new Set();    // shuffle: keys already heard in this pass
+const _history = [];          // shuffle: indices to walk back through
+let _objectUrl = null;
+
+function _revokeObjectUrl() {
+  if (_objectUrl) { URL.revokeObjectURL(_objectUrl); _objectUrl = null; }
+}
+
+async function _resolveSource(track) {
+  // Offline copy (Electron file, Capacitor file, or IndexedDB blob) wins over the network
+  const offline = await useOfflineStore.getState().resolveAudioUrl(track.id);
+  if (offline) {
+    if (offline.startsWith('blob:')) { _revokeObjectUrl(); _objectUrl = offline; }
+    return offline;
   }
+  return tracksApi.streamUrl(track.id);
+}
+
+async function _resolveExternal(track) {
+  const url = track.externalUrl || track.webpage_url;
+  const res = await externalSearchApi.getPreviewUrl(url);
+  return res.data.streamUrl;
+}
+
+function _prepareContext() {
+  initAudioContext();
+  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
 }
 
 export const usePlayerStore = create(
@@ -926,11 +943,12 @@ export const usePlayerStore = create(
       queue:        [],
       queueIndex:   0,
       isPlaying:    false,
+      isBuffering:  false,
       volume:       0.8,
       progress:     0,
       duration:     0,
       isShuffle:    false,
-      isRepeat:     false,
+      repeat:       'off',          // 'off' | 'all' | 'one'
       isRadio:      false,
       eqBands:      new Array(EQ_BAND_COUNT).fill(0),
       is8DActive:           false,
@@ -945,354 +963,349 @@ export const usePlayerStore = create(
       isNightcoreActive:    false,
       reverbWet:            0.15,
       isManualPanning:      false,
+      manualPos:            { x: 0, z: -0.4, h: 0 },
       activePreset:         'none',
       sleepTimer:        null,
       sleepTimerMinutes: 0,
+      sleepAtEnd:        false,
       audio:        _audio, // excluded from persistence via partialize
 
-      setTrack: (track, queue = [], index = 0) => {
-        initAudioContext();
-        if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
-        const offlineUrl = getOfflineAudioUrl(track.id);
-        _audio.src = offlineUrl || tracksApi.streamUrl(track.id);
+      // ── Core: load + play the item at `index` of `queue` ────────────────────
+      playQueue: async (queue, index = 0, { restore = false } = {}) => {
+        const track = queue?.[index];
+        if (!track) return;
+        const token = ++_playToken;
+        _prepareContext();
+        _loggedPlay = false;
         _audio.volume = get().volume;
-        _audio.play().catch(() => {});
-        set({ currentTrack: track, queue, queueIndex: index, isPlaying: true, progress: 0, duration: 0 });
-        tracksApi.logPlay(track.id).catch(() => {});
-        // Auto-fetch lyrics after brief delay so playback starts first
-        setTimeout(() => autoFetchLyrics(track), 2000);
+
+        set({
+          currentTrack: track, queue, queueIndex: index,
+          progress: 0, duration: track.duration || 0, isBuffering: true, isPlaying: true,
+        });
+
+        try {
+          let src;
+          if (isExternal(track)) {
+            src = await _resolveExternal(track);
+          } else {
+            const cached = useOfflineStore.getState().isDownloaded(track.id);
+            src = cached ? await _resolveSource(track) : tracksApi.streamUrl(track.id);
+          }
+          if (token !== _playToken) return; // user already moved on
+          _audio.src = src;
+          if (restore) return;
+          await _audio.play();
+          _consecutiveErrors = 0;
+        } catch (err) {
+          if (token !== _playToken) return;
+          if (err?.name === 'NotAllowedError') { set({ isPlaying: false, isBuffering: false }); return; }
+          if (err?.name === 'AbortError') return;
+          get()._onPlaybackError(err);
+        }
       },
 
+      setTrack: (track, queue = [], index = 0) => {
+        const q = queue.length ? queue : [track];
+        const i = queue.length ? index : 0;
+        return get().playQueue(q, i);
+      },
       playTrack: (track, queue = [], index = 0) => get().setTrack(track, queue, index),
 
       setQueue: (tracks, startId) => {
-        const index = tracks.findIndex(t => t.id === startId);
-        const idx = index >= 0 ? index : 0;
-        get().setTrack(tracks[idx], tracks, idx);
+        const index = tracks.findIndex((t) => t.id === startId);
+        return get().playQueue(tracks, index >= 0 ? index : 0);
       },
 
+      playExternal: (item, queue, index) => {
+        const t = normalizeExternal(item);
+        return get().playQueue(queue?.length ? queue : [t], queue?.length ? index : 0);
+      },
+
+      // Kept for DeviceSync / legacy callers: play an already-resolved stream URL
       playExternalUrl: (streamUrl, meta, queue = [], index = 0) => {
-        initAudioContext();
-        if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
+        _prepareContext();
+        _playToken++;
+        _loggedPlay = false;
         _audio.src = streamUrl;
         _audio.volume = get().volume;
         _audio.play().catch(() => {});
-        set({
-          currentTrack: {
-            id: null, isExternal: true,
-            externalUrl: meta.externalUrl,
-            title: meta.title,
-            artistName: meta.artistName,
-            thumbnail: meta.thumbnail,
-            coverPath: null,
-            source: meta.source,
-            duration: meta.duration,
-            mediaType: 'audio',
-            lyrics: null,
-          },
-          queue: queue, queueIndex: index, isPlaying: true, progress: 0, duration: 0,
-        });
-        // Auto-fetch lyrics for external tracks
-        const exMeta = { title: meta.title, artistName: meta.artistName, externalUrl: meta.externalUrl, id: null, isExternal: true };
-        setTimeout(() => autoFetchLyrics(exMeta), 2000);
+        const t = normalizeExternal({ ...meta, externalUrl: meta.externalUrl });
+        set({ currentTrack: t, queue: queue.length ? queue : [t], queueIndex: index, isPlaying: true, progress: 0, duration: meta.duration || 0 });
       },
 
       togglePlay: () => {
-        initAudioContext();
-        if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
-        const { isPlaying } = get();
-        if (isPlaying) {
-          _audio.pause();
-          set({ isPlaying: false });
-        } else {
+        _prepareContext();
+        if (!get().currentTrack) return;
+        if (_audio.paused) {
+          if (!_audio.src) { get().playQueue(get().queue, get().queueIndex); return; }
           _audio.play().catch(() => {});
-          set({ isPlaying: true });
+        } else {
+          _audio.pause();
         }
       },
 
-      next: async () => {
-        const { queue, queueIndex, isShuffle, currentTrack } = get();
+      pause: () => { _audio.pause(); },
+
+      next: async ({ auto = false } = {}) => {
+        const { queue, queueIndex, isShuffle, repeat, currentTrack } = get();
         if (!queue.length) return;
-        const idx = isShuffle
-          ? Math.floor(Math.random() * queue.length)
-          : (queueIndex + 1) % queue.length;
-        
-        const nextTrack = queue[idx];
-        if (nextTrack.isExternal || nextTrack.source) {
-          try {
-            const { externalSearchApi } = await import('../api');
-            const res = await externalSearchApi.getPreviewUrl(nextTrack.webpage_url || nextTrack.externalUrl);
-            get().playExternalUrl(res.data.streamUrl, {
-              title: nextTrack.title,
-              artistName: nextTrack.artist || nextTrack.artistName || 'Unknown',
-              thumbnail: nextTrack.thumbnail,
-              externalUrl: nextTrack.webpage_url || nextTrack.externalUrl,
-              source: nextTrack.source,
-              duration: nextTrack.duration,
-            }, queue, idx);
-          } catch (e) { console.error(e); }
+
+        // Radio: keep the queue topped up
+        if (get().isRadio && queue.length - queueIndex <= 3) get()._topUpRadio();
+
+        let idx;
+        if (isShuffle && queue.length > 1) {
+          _played.add(trackKey(currentTrack, queueIndex));
+          let pool = queue.map((t, i) => i).filter((i) => !_played.has(trackKey(queue[i], i)));
+          if (!pool.length) {
+            if (repeat === 'all' || !auto) { _played.clear(); _played.add(trackKey(currentTrack, queueIndex)); pool = queue.map((_, i) => i).filter((i) => i !== queueIndex); }
+            else { _audio.pause(); _audio.currentTime = 0; set({ isPlaying: false, progress: 0 }); return; }
+          }
+          idx = pool[Math.floor(Math.random() * pool.length)];
+          _history.push(queueIndex);
         } else {
-          get().setTrack(nextTrack, queue, idx);
+          idx = queueIndex + 1;
+          if (idx >= queue.length) {
+            if (repeat === 'all' || !auto) idx = 0;
+            else { _audio.pause(); _audio.currentTime = 0; set({ isPlaying: false, progress: 0 }); return; }
+          }
         }
+        return get().playQueue(queue, idx);
       },
 
       prev: async () => {
-        const { queue, queueIndex, currentTrack } = get();
-        if (_audio.currentTime > 3) { _audio.currentTime = 0; return; }
-        if (!queue.length) return;
-        const idx = (queueIndex - 1 + queue.length) % queue.length;
-        
-        const prevTrack = queue[idx];
-        if (prevTrack.isExternal || prevTrack.source) {
-          try {
-            const { externalSearchApi } = await import('../api');
-            const res = await externalSearchApi.getPreviewUrl(prevTrack.webpage_url || prevTrack.externalUrl);
-            get().playExternalUrl(res.data.streamUrl, {
-              title: prevTrack.title,
-              artistName: prevTrack.artist || prevTrack.artistName || 'Unknown',
-              thumbnail: prevTrack.thumbnail,
-              externalUrl: prevTrack.webpage_url || prevTrack.externalUrl,
-              source: prevTrack.source,
-              duration: prevTrack.duration,
-            }, queue, idx);
-          } catch (e) { console.error(e); }
+        const { queue, queueIndex, isShuffle, repeat } = get();
+        if (_audio.currentTime > 3 || !queue.length) { _audio.currentTime = 0; set({ progress: 0 }); return; }
+        let idx;
+        if (isShuffle && _history.length) idx = _history.pop();
+        else idx = queueIndex - 1 < 0 ? (repeat === 'all' ? queue.length - 1 : 0) : queueIndex - 1;
+        return get().playQueue(queue, idx);
+      },
+
+      _onPlaybackError: (err) => {
+        console.error('[player]', err);
+        _consecutiveErrors += 1;
+        set({ isBuffering: false });
+        const { queue, queueIndex } = get();
+        if (_consecutiveErrors <= 3 && queue.length > 1 && queueIndex < queue.length - 1) {
+          toast.error('Трек недоступний — пропускаю');
+          get().next({ auto: true });
         } else {
-          get().setTrack(prevTrack, queue, idx);
+          set({ isPlaying: false });
+          toast.error('Не вдалося відтворити трек');
         }
       },
 
-      setVolume: (vol) => { _audio.volume = vol; set({ volume: vol }); },
-      seek:      (time) => { _audio.currentTime = time; set({ progress: time }); },
+      _topUpRadio: async () => {
+        const { currentTrack, queue } = get();
+        if (!currentTrack || get()._radioBusy) return;
+        set({ _radioBusy: true });
+        try {
+          let more = [];
+          if (currentTrack.id != null) {
+            const res = await discoverApi.similar(currentTrack.id, 10);
+            more = Array.isArray(res.data) ? res.data : [];
+          }
+          if (more.length < 3) {
+            const seed = currentTrack.id ?? null;
+            if (seed != null) {
+              const res = await externalSearchApi.radio(seed, 6);
+              more = more.concat((Array.isArray(res.data) ? res.data : []).map(normalizeExternal));
+            }
+          }
+          const have = new Set(queue.map((t, i) => trackKey(t, i)));
+          const fresh = more.filter((t, i) => !have.has(trackKey(t, i)));
+          if (fresh.length) set((s) => ({ queue: [...s.queue, ...fresh] }));
+        } catch { /* radio is best-effort */ }
+        finally { set({ _radioBusy: false }); }
+      },
 
-      toggleShuffle: () => set((s) => ({ isShuffle: !s.isShuffle })),
-      toggleRepeat:  () => set((s) => ({ isRepeat:  !s.isRepeat  })),
+      setVolume: (vol) => { _audio.volume = vol; set({ volume: vol }); },
+      seek:      (time) => { if (Number.isFinite(time)) { _audio.currentTime = Math.max(0, time); set({ progress: Math.max(0, time) }); } },
+
+      toggleShuffle: () => { _played.clear(); _history.length = 0; set((s) => ({ isShuffle: !s.isShuffle })); },
+      cycleRepeat:   () => set((s) => ({ repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off' })),
       setProgress:   (progress) => set({ progress }),
       setDuration:   (duration) => set({ duration }),
       setIsPlaying:  (isPlaying) => set({ isPlaying }),
 
       // ── Queue manipulation ──────────────────────────────────────────────────
-      addToQueue: (track) => {
-        set(s => ({ queue: [...s.queue, track] }));
-        return true;
-      },
-
+      addToQueue: (track) => { set((s) => ({ queue: s.queue.length ? [...s.queue, track] : [track] })); return true; },
       addToQueueNext: (track) => {
-        set(s => {
-          const newQ = [...s.queue];
-          newQ.splice(s.queueIndex + 1, 0, track);
-          return { queue: newQ };
+        set((s) => {
+          if (!s.queue.length) return { queue: [track], queueIndex: 0 };
+          const q = [...s.queue];
+          q.splice(s.queueIndex + 1, 0, track);
+          return { queue: q };
         });
       },
-
-      addBulkToQueue: (tracks) => {
-        set(s => ({ queue: [...s.queue, ...tracks] }));
-      },
-
+      addBulkToQueue: (tracks) => set((s) => ({ queue: [...s.queue, ...tracks] })),
+      removeFromQueue: (index) => set((s) => {
+        const q = s.queue.filter((_, i) => i !== index);
+        const qi = index < s.queueIndex ? s.queueIndex - 1 : Math.min(s.queueIndex, Math.max(0, q.length - 1));
+        return { queue: q, queueIndex: qi };
+      }),
+      moveInQueue: (from, to) => set((s) => {
+        if (from === to) return {};
+        const q = [...s.queue];
+        const [item] = q.splice(from, 1);
+        q.splice(to, 0, item);
+        let qi = s.queueIndex;
+        if (from === qi) qi = to;
+        else if (from < qi && to >= qi) qi -= 1;
+        else if (from > qi && to <= qi) qi += 1;
+        return { queue: q, queueIndex: qi };
+      }),
+      clearUpcoming: () => set((s) => ({ queue: s.queue.slice(0, s.queueIndex + 1) })),
       shuffleQueue: () => {
         const { queue, queueIndex } = get();
         if (queue.length < 2) return;
         const current = queue[queueIndex];
         const rest = queue.filter((_, i) => i !== queueIndex);
-        const shuffled = rest.sort(() => Math.random() - 0.5);
-        set({ queue: [current, ...shuffled], queueIndex: 0 });
+        for (let i = rest.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [rest[i], rest[j]] = [rest[j], rest[i]];
+        }
+        set({ queue: [current, ...rest], queueIndex: 0 });
       },
 
+      // ── Sound ───────────────────────────────────────────────────────────────
       toggle8D: () => {
         initAudioContext();
         const val = !get().is8DActive;
         set({ is8DActive: val, isManualPanning: false, activePreset: 'custom' });
         applyAudioEffects(get());
       },
-
       togglePerfectAudio: () => {
         initAudioContext();
-        const val = !get().isPerfectAudioActive;
-        set({ isPerfectAudioActive: val, activePreset: 'custom' });
+        set({ isPerfectAudioActive: !get().isPerfectAudioActive, activePreset: 'custom' });
         applyEqBands(get().eqBands);
         applyAudioEffects(get());
       },
-
       toggleAutoEq: () => {
         initAudioContext();
-        const val = !get().isAutoEqActive;
-        set({ isAutoEqActive: val, activePreset: 'custom' });
+        set({ isAutoEqActive: !get().isAutoEqActive, activePreset: 'custom' });
         applyAudioEffects(get());
       },
-
       toggleLofi: () => {
         initAudioContext();
         const val = !get().isLofiActive;
         set({ isLofiActive: val, isKaraokeActive: val ? false : get().isKaraokeActive, activePreset: 'custom' });
         applyAudioEffects(get());
       },
-
       toggleKaraoke: () => {
         initAudioContext();
         const val = !get().isKaraokeActive;
         set({ isKaraokeActive: val, isLofiActive: val ? false : get().isLofiActive, activePreset: 'custom' });
         applyAudioEffects(get());
       },
-
-      toggleSubBass: () => {
-        initAudioContext();
-        set({ isSubBassActive: !get().isSubBassActive, activePreset: 'custom' });
-        applyAudioEffects(get());
-      },
-
-      toggleVocalBoost: () => {
-        initAudioContext();
-        set({ isVocalBoostActive: !get().isVocalBoostActive, activePreset: 'custom' });
-        applyAudioEffects(get());
-      },
-
+      toggleSubBass: () => { initAudioContext(); set({ isSubBassActive: !get().isSubBassActive, activePreset: 'custom' }); applyAudioEffects(get()); },
+      toggleVocalBoost: () => { initAudioContext(); set({ isVocalBoostActive: !get().isVocalBoostActive, activePreset: 'custom' }); applyAudioEffects(get()); },
       toggleDouble8D: () => {
         initAudioContext();
         const val = !get().isDouble8DActive;
-        set({ isDouble8DActive: val, is8DActive: val ? false : get().is8DActive, activePreset: 'custom' });
+        set({ isDouble8DActive: val, is8DActive: val ? false : get().is8DActive, isManualPanning: val ? false : get().isManualPanning, activePreset: 'custom' });
         applyAudioEffects(get());
       },
-
-      toggleBassRumble: () => {
-        initAudioContext();
-        set({ isBassRumbleActive: !get().isBassRumbleActive, activePreset: 'custom' });
-        applyAudioEffects(get());
-      },
-
-      toggleNightcore: () => {
-        initAudioContext();
-        set({ isNightcoreActive: !get().isNightcoreActive, activePreset: 'custom' });
-        applyAudioEffects(get());
-      },
+      toggleBassRumble: () => { initAudioContext(); set({ isBassRumbleActive: !get().isBassRumbleActive, activePreset: 'custom' }); applyAudioEffects(get()); },
+      toggleNightcore: () => { initAudioContext(); set({ isNightcoreActive: !get().isNightcoreActive, activePreset: 'custom' }); applyAudioEffects(get()); },
 
       setPreset: (presetName) => {
         initAudioContext();
-        const presets = {
-          none: {
-            is8DActive: false, isPerfectAudioActive: false, isAutoEqActive: false,
-            isLofiActive: false, isKaraokeActive: false, isSubBassActive: false,
-            isVocalBoostActive: false, isDouble8DActive: false, isBassRumbleActive: false,
-            isNightcoreActive: false, reverbWet: 0.15, isManualPanning: false
-          },
-          concert: {
-            // Arena 8D — orbiting + huge reverb + sub + auto eq
-            is8DActive: true, isPerfectAudioActive: true, isAutoEqActive: true,
-            isLofiActive: false, isKaraokeActive: false, isSubBassActive: true,
-            isVocalBoostActive: false, isDouble8DActive: false, isBassRumbleActive: false,
-            isNightcoreActive: false, reverbWet: 0.58, isManualPanning: false
-          },
-          club: {
-            // Cyber Club — bass rumble + vocal clarity + auto eq
-            is8DActive: false, isPerfectAudioActive: true, isAutoEqActive: true,
-            isLofiActive: false, isKaraokeActive: false, isSubBassActive: false,
-            isVocalBoostActive: true, isDouble8DActive: false, isBassRumbleActive: true,
-            isNightcoreActive: false, reverbWet: 0.22, isManualPanning: false
-          },
-          retro: {
-            // Lo-Fi Cafe — vintage vinyl tape
-            is8DActive: false, isPerfectAudioActive: false, isAutoEqActive: false,
-            isLofiActive: true, isKaraokeActive: false, isSubBassActive: false,
-            isVocalBoostActive: false, isDouble8DActive: false, isBassRumbleActive: false,
-            isNightcoreActive: false, reverbWet: 0.40, isManualPanning: false
-          },
-          karaoke: {
-            // Karaoke — stereo-preserving vocal cancellation + sub bass
-            is8DActive: false, isPerfectAudioActive: true, isAutoEqActive: false,
-            isLofiActive: false, isKaraokeActive: true, isSubBassActive: true,
-            isVocalBoostActive: false, isDouble8DActive: false, isBassRumbleActive: false,
-            isNightcoreActive: false, reverbWet: 0.20, isManualPanning: false
-          }
+        const off = {
+          is8DActive: false, isPerfectAudioActive: false, isAutoEqActive: false,
+          isLofiActive: false, isKaraokeActive: false, isSubBassActive: false,
+          isVocalBoostActive: false, isDouble8DActive: false, isBassRumbleActive: false,
+          isNightcoreActive: false, reverbWet: 0.15, isManualPanning: false,
         };
-        const settings = presets[presetName] || presets.none;
-        set({
-          activePreset: presetName,
-          ...settings
-        });
+        const presets = {
+          none: off,
+          concert: { ...off, is8DActive: true, isPerfectAudioActive: true, isAutoEqActive: true, isSubBassActive: true, reverbWet: 0.58 },
+          club:    { ...off, isPerfectAudioActive: true, isAutoEqActive: true, isVocalBoostActive: true, isBassRumbleActive: true, reverbWet: 0.22 },
+          retro:   { ...off, isLofiActive: true, reverbWet: 0.4 },
+          karaoke: { ...off, isPerfectAudioActive: true, isKaraokeActive: true, isSubBassActive: true, reverbWet: 0.2 },
+        };
+        set({ activePreset: presetName, ...(presets[presetName] || off) });
         applyAudioEffects(get());
       },
 
-      setPannerPositionManual: (x, z) => {
+      // x, z: anywhere inside the unit disk (z < 0 = front); h: -1..1 (below..above).
+      // Pass only the axes that changed — the rest keep their value.
+      setPannerPositionManual: (x, z, h) => {
         initAudioContext();
-        set({ is8DActive: false, isManualPanning: true, activePreset: 'custom' });
-        
-        // Update local panner angle so if they toggle 8D back on, it starts from where they left it
-        _pannerAngle = Math.atan2(x, z);
-        
-        if (_panner) {
-          const distance = Math.sqrt(x*x + z*z) || 1;
-          const targetX = (x / distance) * 3.5;
-          const targetZ = (z / distance) * 3.5;
-          
-          if (_panner.positionX) {
-            _panner.positionX.setTargetAtTime(targetX, _audioCtx.currentTime, 0.05);
-            _panner.positionY.setTargetAtTime(0, _audioCtx.currentTime, 0.05);
-            _panner.positionZ.setTargetAtTime(targetZ, _audioCtx.currentTime, 0.05);
-          } else if (typeof _panner.setPosition === 'function') {
-            _panner.setPosition(targetX, 0, targetZ);
-          }
-        }
+        const prev = get().manualPos;
+        let nx = x ?? prev.x, nz = z ?? prev.z;
+        const d = Math.hypot(nx, nz);
+        if (d > 1) { nx /= d; nz /= d; }
+        const manualPos = { x: nx, z: nz, h: Math.max(-1, Math.min(1, h ?? prev.h)) };
+        const wasManual = get().isManualPanning;
+        set({ manualPos, is8DActive: false, isDouble8DActive: false, isManualPanning: true, activePreset: 'custom' });
+        // first placement: let the effects pass drop 8D rotation and reset the crossover
+        if (!wasManual) applyAudioEffects(get());
+        applyManualPanner(manualPos);
       },
 
-      setReverbWet: (wet) => {
+      resetPanner: () => {
         initAudioContext();
-        set({ reverbWet: wet });
+        set({ isManualPanning: false, manualPos: { x: 0, z: -0.4, h: 0 } });
         applyAudioEffects(get());
       },
+
+      setReverbWet: (wet) => { initAudioContext(); set({ reverbWet: wet }); applyAudioEffects(get()); },
 
       setEqBand: (index, value) => {
         initAudioContext();
-        const newBands = [...get().eqBands];
-        newBands[index] = value;
-        applyEqBands(newBands);
-        set({ eqBands: newBands });
-      },
-
-      setEqBands: (bands) => {
-        initAudioContext();
+        const bands = [...get().eqBands];
+        bands[index] = value;
         applyEqBands(bands);
         set({ eqBands: bands });
       },
+      setEqBands: (bands) => { initAudioContext(); applyEqBands(bands); set({ eqBands: bands }); },
 
-      // Sleep timer
+      // ── Sleep timer ─────────────────────────────────────────────────────────
       setSleepTimer: (minutes) => {
-        if (!minutes) {
-          set({ sleepTimer: null, sleepTimerMinutes: 0 });
-        } else {
-          set({ sleepTimer: Date.now() + minutes * 60000, sleepTimerMinutes: minutes });
-        }
+        if (minutes === 'end') set({ sleepTimer: null, sleepTimerMinutes: 0, sleepAtEnd: true });
+        else if (!minutes) set({ sleepTimer: null, sleepTimerMinutes: 0, sleepAtEnd: false });
+        else set({ sleepTimer: Date.now() + minutes * 60000, sleepTimerMinutes: minutes, sleepAtEnd: false });
       },
-      clearSleepTimer: () => set({ sleepTimer: null, sleepTimerMinutes: 0 }),
+      clearSleepTimer: () => set({ sleepTimer: null, sleepTimerMinutes: 0, sleepAtEnd: false }),
 
-      // Radio mode
-      toggleRadio: () => set((s) => ({ isRadio: !s.isRadio })),
+      // ── Radio ───────────────────────────────────────────────────────────────
+      toggleRadio: () => {
+        const on = !get().isRadio;
+        set({ isRadio: on });
+        if (on) get()._topUpRadio();
+      },
 
-      // Patch the currentTrack object in-place (e.g. after saving lyrics)
       updateCurrentTrack: (updates) =>
         set((s) => ({ currentTrack: s.currentTrack ? { ...s.currentTrack, ...updates } : null })),
     }),
     {
       name:    'beatify-player',
       storage: debouncedStorage,
-      version: 2,
-      migrate: (persisted) => {
-        // v1 → v2: EQ expanded from 5 bands [60,230,910,3600,14000]
-        // to 10 ISO bands — spread each old band across its two new neighbours
-        if (persisted?.eqBands?.length === 5) {
+      version: 3,
+      migrate: (persisted, version) => {
+        if (!persisted) return persisted;
+        if (persisted.eqBands?.length === 5) {
           const [b60, b230, b910, b3600, b14000] = persisted.eqBands;
           persisted.eqBands = [b60, b60, b230, b230, b910, b910, b3600, b3600, b14000, b14000];
-        } else if (!Array.isArray(persisted?.eqBands) || persisted.eqBands.length !== EQ_BAND_COUNT) {
-          if (persisted) persisted.eqBands = new Array(EQ_BAND_COUNT).fill(0);
+        } else if (!Array.isArray(persisted.eqBands) || persisted.eqBands.length !== EQ_BAND_COUNT) {
+          persisted.eqBands = new Array(EQ_BAND_COUNT).fill(0);
+        }
+        if (version < 3) {
+          persisted.repeat = persisted.isRepeat ? 'one' : 'off';
+          delete persisted.isRepeat;
         }
         return persisted;
       },
-      // Only persist these fields — audio element and isPlaying are intentionally excluded
       partialize: (s) => ({
         currentTrack: s.currentTrack,
         queue:        s.queue,
         queueIndex:   s.queueIndex,
-        isPlaying:    s.isPlaying,
         volume:       s.volume,
         isShuffle:    s.isShuffle,
-        isRepeat:     s.isRepeat,
+        repeat:       s.repeat,
         isRadio:      s.isRadio,
         progress:     s.progress,
         eqBands:      s.eqBands,
@@ -1308,41 +1321,65 @@ export const usePlayerStore = create(
         isNightcoreActive:    s.isNightcoreActive,
         reverbWet:            s.reverbWet,
         isManualPanning:      s.isManualPanning,
+        manualPos:            s.manualPos,
         activePreset:         s.activePreset,
       }),
-      // After hydration: restore audio source + seek position
+      // After hydration: put the last track back on the element (paused — browsers
+      // block autoplay without a gesture, and a resumed session should not blast sound).
       onRehydrateStorage: () => (state) => {
         _audio.volume = state?.volume ?? 0.8;
         if (!state?.currentTrack) return;
-        
-        // Wait for user interaction to initAudioContext, but we can restore EQ bands later when it's initialized.
-        // Or we just rely on setEqBand calls, but we need to apply them on first play.
-        // We will call applyEqBands inside initAudioContext by reading from localStorage directly or state.
-        
         const seekTo = state.progress ?? 0;
-        
-        const applyState = () => {
-          if (seekTo > 0) _audio.currentTime = seekTo;
-          if (state.isPlaying) {
-            initAudioContext();
-            _audio.play().catch(() => { usePlayerStore.setState({ isPlaying: false }); });
-            if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume().catch(()=>{});
-          }
-        };
+        if (isExternal(state.currentTrack)) return; // stream URLs expire — resolve on play
 
-        if (!state.currentTrack.isExternal) {
-          const offlineUrl = getOfflineAudioUrl(state.currentTrack.id);
-          _audio.src = offlineUrl || tracksApi.streamUrl(state.currentTrack.id);
-          if (_audio.readyState >= 1) {
-            applyState();
-          } else {
-            _audio.addEventListener('loadedmetadata', applyState, { once: true });
-          }
-        } else {
-          // External URLs expire quickly, so we reset playback to paused and do not restore the URL
-          usePlayerStore.setState({ isPlaying: false });
+        const track = state.currentTrack;
+        const src = tracksApi.streamUrl(track.id);
+        _audio.src = src;
+        _audio.preload = 'metadata';
+        if (seekTo > 0) {
+          _audio.addEventListener('loadedmetadata', () => { try { _audio.currentTime = seekTo; } catch { /* not seekable yet */ } }, { once: true });
         }
+        queueMicrotask(() => usePlayerStore.setState({ isPlaying: false }));
       },
     }
   )
 );
+
+// ── Audio element events (registered once for the app's lifetime) ─────────────
+_audio.addEventListener('timeupdate', () => {
+  const s = usePlayerStore.getState();
+  const t = _audio.currentTime;
+  usePlayerStore.setState({ progress: t });
+
+  // Count a play once the listener has really listened
+  if (!_loggedPlay && s.currentTrack?.id != null && (t >= 30 || (_audio.duration > 0 && t >= _audio.duration * 0.5))) {
+    _loggedPlay = true;
+    if (useAuthStore.getState().token) tracksApi.logPlay(s.currentTrack.id, Math.round(t)).catch(() => {});
+  }
+
+  // Sleep timer
+  if (s.sleepTimer && Date.now() >= s.sleepTimer) {
+    _audio.pause();
+    usePlayerStore.getState().clearSleepTimer();
+    toast('Таймер сну: відтворення зупинено');
+  }
+});
+_audio.addEventListener('durationchange', () => {
+  if (Number.isFinite(_audio.duration) && _audio.duration > 0) usePlayerStore.setState({ duration: _audio.duration });
+});
+_audio.addEventListener('play',    () => usePlayerStore.setState({ isPlaying: true }));
+_audio.addEventListener('pause',   () => usePlayerStore.setState({ isPlaying: false }));
+_audio.addEventListener('waiting', () => usePlayerStore.setState({ isBuffering: true }));
+_audio.addEventListener('playing', () => usePlayerStore.setState({ isBuffering: false, isPlaying: true }));
+_audio.addEventListener('canplay', () => usePlayerStore.setState({ isBuffering: false }));
+_audio.addEventListener('ended', () => {
+  const s = usePlayerStore.getState();
+  if (s.repeat === 'one') { _audio.currentTime = 0; _audio.play().catch(() => {}); return; }
+  if (s.sleepAtEnd) { s.clearSleepTimer(); usePlayerStore.setState({ isPlaying: false }); toast('Таймер сну: трек завершено'); return; }
+  s.next({ auto: true });
+});
+_audio.addEventListener('error', () => {
+  if (!_audio.src || _audio.src === window.location.href) return;
+  const s = usePlayerStore.getState();
+  if (s.currentTrack) s._onPlaybackError(_audio.error || new Error('audio error'));
+});

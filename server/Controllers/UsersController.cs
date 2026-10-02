@@ -29,8 +29,21 @@ public class UsersController : ControllerBase
         var user = await _db.Users.FindAsync(userId);
         if (user == null) return NotFound();
 
-        if (!string.IsNullOrEmpty(dto.Name)) user.Name = dto.Name;
-        if (!string.IsNullOrEmpty(dto.Email)) user.Email = dto.Email;
+        if (!string.IsNullOrWhiteSpace(dto.Name))
+        {
+            var n = dto.Name.Trim();
+            if (n.Length < 2 || n.Length > 60) return BadRequest(new { message = "Ім’я має містити від 2 до 60 символів" });
+            user.Name = n;
+        }
+        if (!string.IsNullOrWhiteSpace(dto.Email))
+        {
+            var e = dto.Email.Trim().ToLowerInvariant();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(e, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+                return BadRequest(new { message = "Вкажіть коректний email" });
+            if (await _db.Users.AnyAsync(u => u.Id != userId && u.Email.ToLower() == e))
+                return Conflict(new { message = "Цей email уже використовується" });
+            user.Email = e;
+        }
 
         await _db.SaveChangesAsync();
         

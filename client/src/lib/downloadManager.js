@@ -40,7 +40,7 @@ export async function startDownloadQueue() {
           coverUrl:   next.coverUrl ?? null,
         });
         updateTrack(next.id, { status: 'done' });
-      } catch (err) {
+      } catch {
         updateTrack(next.id, { status: 'failed' });
         // Always continue to next track on failure
       }

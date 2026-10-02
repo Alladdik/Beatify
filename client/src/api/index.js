@@ -1,17 +1,8 @@
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
+import { API_ORIGIN, API_URL, fileUrl, streamUrl } from '../lib/config';
 
-// Local (localhost / LAN IP) → connect directly to backend on :5000
-// Tunnel / deployed (ngrok, etc.) → same origin, no extra port
-const _h = window.location.hostname;
-const _isLocal = _h === 'localhost' || _h === '127.0.0.1'
-  || /^(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[01]))\./.test(_h);
-const BASE_URL = _isLocal
-  ? `http://${_h}:5000`
-  : window.location.origin;
-const API_URL = `${BASE_URL}/api`;
-
-const api = axios.create({ baseURL: API_URL });
+const api = axios.create({ baseURL: API_URL, timeout: 30000 });
 
 // Keep the Authorization header on the axios instance in permanent sync with the auth store.
 function _applyToken(state) {
@@ -22,7 +13,6 @@ function _applyToken(state) {
 _applyToken();
 useAuthStore.subscribe(_applyToken);
 
-// Belt-and-suspenders: also set header per-request so there's no window where it can be missing.
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
   if (token) config.headers.set('Authorization', `Bearer ${token}`);
@@ -47,38 +37,46 @@ api.interceptors.response.use(
       const isAuthEndpoint = err.config?.url?.includes('/auth/');
       if (!isAuthEndpoint) {
         const token = useAuthStore.getState().token;
-        if (!token || isTokenExpired(token)) {
-          useAuthStore.getState().logout();
-        }
+        if (!token || isTokenExpired(token)) useAuthStore.getState().logout();
       }
     }
     return Promise.reject(err);
   }
 );
 
+/** Human message from any axios error (server `message` first). */
+export const errMsg = (err, fallback = 'Щось пішло не так') =>
+  err?.response?.data?.message || err?.response?.data?.title || (err?.code === 'ECONNABORTED' ? 'Сервер відповідає надто довго' : null) || fallback;
+
+const multipart = { headers: { 'Content-Type': 'multipart/form-data' } };
+
 // Auth
 export const authApi = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
   me: () => api.get('/auth/me'),
+  config: () => api.get('/auth/config'),
 };
 
 // Tracks
 export const tracksApi = {
-  getAll: (page = 1) => api.get(`/tracks?page=${page}`),
+  getAll: (page = 1, pageSize = 60) => api.get(`/tracks?page=${page}&pageSize=${pageSize}`),
   getAllAdmin: () => api.get('/tracks?page=1&pageSize=500'),
   getById: (id) => api.get(`/tracks/${id}`),
   getTrending: () => api.get('/tracks/trending'),
   getNewReleases: () => api.get('/tracks/new-releases'),
   getLiked: () => api.get('/tracks/liked'),
   like: (id) => api.post(`/tracks/${id}/like`),
-  logPlay: (id) => api.post(`/tracks/${id}/log-play`),
+  logPlay: (id, seconds) => api.post(`/tracks/${id}/log-play`, null, { params: { seconds } }),
   getHistory: (limit = 50, offset = 0) => api.get(`/tracks/history?limit=${limit}&offset=${offset}`),
-  upload: (formData) => api.post('/tracks', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  update: (id, formData) => api.put(`/tracks/${id}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  upload: (formData) => api.post('/tracks', formData, multipart),
+  // An artist releasing their own track (also Studio → Publish)
+  uploadMine: (formData, onProgress) => api.post('/tracks/mine', formData, { ...multipart, timeout: 0, onUploadProgress: onProgress }),
+  update: (id, formData) => api.put(`/tracks/${id}`, formData, multipart),
   delete: (id) => api.delete(`/tracks/${id}`),
   getRecommendations: (id) => api.get(`/tracks/${id}/recommendations`),
-  streamUrl: (id) => `${API_URL}/tracks/${id}/stream`,
+  getLyrics: (id) => api.get(`/tracks/${id}/lyrics`),
+  streamUrl,
 };
 
 // Artists
@@ -87,7 +85,8 @@ export const artistsApi = {
   getById: (id) => api.get(`/artists/${id}`),
   getTracks: (id) => api.get(`/artists/${id}/tracks`),
   getAlbums: (id) => api.get(`/artists/${id}/albums`),
-  create: (formData) => api.post('/artists', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  getSimilar: (id) => api.get(`/artists/${id}/similar`),
+  create: (formData) => api.post('/artists', formData, multipart),
 };
 
 // Albums
@@ -95,7 +94,7 @@ export const albumsApi = {
   getAll: () => api.get('/albums'),
   getById: (id) => api.get(`/albums/${id}`),
   getTracks: (id) => api.get(`/albums/${id}/tracks`),
-  create: (formData) => api.post('/albums', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  create: (formData) => api.post('/albums', formData, multipart),
 };
 
 // Playlists
@@ -112,10 +111,18 @@ export const playlistsApi = {
   reorder: (id, trackIds) => api.put(`/playlists/${id}/reorder`, { trackIds }),
 };
 
-// Search (local)
+// Search (local) + personalised discovery
 export const searchApi = {
   search: (q) => api.get(`/search?q=${encodeURIComponent(q)}`),
   getRecommendations: (limit = 12) => api.get(`/search/recommendations?limit=${limit}`),
+};
+
+// Smart picks: home shelves, mixes, "because you listened…", similar tracks
+export const discoverApi = {
+  home: () => api.get('/discover/home'),
+  mix: (id) => api.get(`/discover/mix/${encodeURIComponent(id)}`),
+  similar: (trackId, limit = 12) => api.get(`/discover/similar/${trackId}?limit=${limit}`),
+  library: () => api.get('/discover/library'),
 };
 
 // Stats
@@ -123,22 +130,20 @@ export const statsApi = {
   get: () => api.get('/tracks/stats'),
 };
 
-// External search (YouTube Music, SoundCloud)
+// External services (YouTube Music, SoundCloud) via yt-dlp
 export const externalSearchApi = {
   search: (q, source = 'youtube', limit = 8) =>
     api.get(`/externalsearch?q=${encodeURIComponent(q)}&source=${source}&limit=${limit}`),
-  getPreviewUrl: (url) =>
-    api.get(`/externalsearch/previewurl?url=${encodeURIComponent(url)}`),
-  searchLyrics: (q) =>
-    api.get(`/externalsearch/lyrics?q=${encodeURIComponent(q)}`),
+  getPreviewUrl: (url) => api.get(`/externalsearch/previewurl?url=${encodeURIComponent(url)}`),
+  searchLyrics: (q) => api.get(`/externalsearch/lyrics?q=${encodeURIComponent(q)}`),
   fetchLyrics: (artist, title) =>
     api.get(`/externalsearch/fetchlyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`),
   soundcloudUser: (username, type = 'tracks', limit = 50) =>
     api.get(`/externalsearch/soundcloud/user?username=${encodeURIComponent(username)}&type=${type}&limit=${limit}`),
-  fillLyrics: (maxTracks = 50) =>
-    api.post(`/externalsearch/fill-lyrics?maxTracks=${maxTracks}`),
-  radio: (trackId, limit = 5) =>
-    api.get(`/externalsearch/radio?trackId=${trackId}&limit=${limit}`),
+  fillLyrics: (maxTracks = 50) => api.post(`/externalsearch/fill-lyrics?maxTracks=${maxTracks}`),
+  radio: (trackId, limit = 5) => api.get(`/externalsearch/radio?trackId=${trackId}&limit=${limit}`),
+  // Save an external track (YouTube / SoundCloud) into the library by its page URL
+  save: (data) => api.post('/download', data),
 };
 
 // Download (yt-dlp)
@@ -149,12 +154,17 @@ export const downloadApi = {
   downloadPlaylist: (data) => api.post('/download/playlist', data),
 };
 
-// Files — served directly as static files from wwwroot/uploads/
-export const fileUrl = (type, fileName) => fileName ? `${BASE_URL}/uploads/${type}/${fileName}` : null;
+// Studio: cloud projects
+export const studioApi = {
+  list: () => api.get('/studio/projects'),
+  get: (id) => api.get(`/studio/projects/${id}`),
+  save: (id, project) => api.put(`/studio/projects/${id}`, JSON.stringify(project), { headers: { 'Content-Type': 'application/json' }, transformRequest: [(d) => d] }),
+  remove: (id) => api.delete(`/studio/projects/${id}`),
+};
 
-// Spotify API
+// Spotify metadata import
 export const spotifyApi = {
-  getPlaylist: (url, clientId, clientSecret) => api.get('/spotify/playlist', { params: { url, clientId, clientSecret } })
+  getPlaylist: (url, clientId, clientSecret) => api.post('/spotify/playlist', { url, clientId, clientSecret }),
 };
 
 // Users
@@ -163,5 +173,5 @@ export const usersApi = {
   becomeArtist: () => api.post('/users/become-artist'),
 };
 
-export { BASE_URL as apiBase };
+export { fileUrl, streamUrl, API_ORIGIN as apiBase, API_URL };
 export default api;

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using BeatifyServer.Data;
 using BeatifyServer.DTOs;
 using BeatifyServer.Models;
+using BeatifyServer.Services;
 
 namespace BeatifyServer.Controllers;
 
@@ -14,11 +15,15 @@ public class TracksController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly LyricsService _lyrics;
+    private readonly RecommendationService _rec;
 
-    public TracksController(AppDbContext db, IWebHostEnvironment env)
+    public TracksController(AppDbContext db, IWebHostEnvironment env, LyricsService lyrics, RecommendationService rec)
     {
         _db = db;
         _env = env;
+        _lyrics = lyrics;
+        _rec = rec;
     }
 
     // Supported formats
@@ -57,6 +62,8 @@ public class TracksController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 500);
         var userId = GetUserId();
         var likedIds = userId > 0
             ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
@@ -95,9 +102,6 @@ public class TracksController : ControllerBase
         if (!System.IO.File.Exists(filePath))
             return NotFound(new { message = "Файл не знайдено на сервері" });
 
-        track.PlayCount++;
-        await _db.SaveChangesAsync();
-
         var ext = Path.GetExtension(track.FilePath);
         var contentType = GetContentType(ext);
 
@@ -108,6 +112,8 @@ public class TracksController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = "admin")]
+    [RequestSizeLimit(536_870_912)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 536_870_912)]
     public async Task<IActionResult> Upload([FromForm] CreateTrackDto dto, IFormFile mediaFile, IFormFile? coverFile)
     {
         var ext = Path.GetExtension(mediaFile.FileName).ToLower();
@@ -157,6 +163,65 @@ public class TracksController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = track.Id }, MapTrack(track, new List<int>()));
     }
 
+    // POST /api/tracks/mine — an artist releases their own track (also used by Studio → «Опублікувати»)
+    [HttpPost("mine")]
+    [Authorize]
+    [RequestSizeLimit(157_286_400)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 157_286_400)]
+    public async Task<IActionResult> UploadMine([FromForm] CreateTrackDto dto, IFormFile mediaFile, IFormFile? coverFile)
+    {
+        var userId = GetUserId();
+        var artist = await _db.Artists.FirstOrDefaultAsync(a => a.UserId == userId);
+        if (artist == null) return BadRequest(new { message = "Спочатку станьте виконавцем у профілі" });
+
+        var title = (dto.Title ?? "").Trim();
+        if (title.Length == 0 || title.Length > 200) return BadRequest(new { message = "Вкажіть назву треку (до 200 символів)" });
+
+        var ext = Path.GetExtension(mediaFile.FileName).ToLower();
+        if (!AudioExts.Contains(ext)) return BadRequest(new { message = $"Формат {ext} не підтримується. Завантажте аудіо: mp3, wav, flac, m4a, ogg, opus" });
+
+        string? coverName = null;
+        if (coverFile != null)
+        {
+            var cext = Path.GetExtension(coverFile.FileName).ToLower();
+            if (cext is not (".jpg" or ".jpeg" or ".png" or ".webp")) return BadRequest(new { message = "Обкладинка має бути jpg, png або webp" });
+            if (coverFile.Length > 8 * 1024 * 1024) return BadRequest(new { message = "Обкладинка завелика (максимум 8 МБ)" });
+        }
+
+        var uploadsPath = Path.Combine(_env.WebRootPath, "uploads", "tracks");
+        Directory.CreateDirectory(uploadsPath);
+        var mediaName = $"{Guid.NewGuid()}{ext}";
+        await using (var stream = new FileStream(Path.Combine(uploadsPath, mediaName), FileMode.Create))
+            await mediaFile.CopyToAsync(stream);
+
+        if (coverFile != null)
+        {
+            var coversPath = Path.Combine(_env.WebRootPath, "uploads", "covers");
+            Directory.CreateDirectory(coversPath);
+            coverName = $"{Guid.NewGuid()}{Path.GetExtension(coverFile.FileName).ToLower()}";
+            await using var cs = new FileStream(Path.Combine(coversPath, coverName), FileMode.Create);
+            await coverFile.CopyToAsync(cs);
+        }
+
+        var track = new Track
+        {
+            Title = title,
+            ArtistId = artist.Id,
+            AlbumId = null,
+            FilePath = mediaName,
+            CoverPath = coverName,
+            Duration = Math.Clamp(dto.Duration, 0, 60 * 60 * 6),
+            Genre = string.IsNullOrWhiteSpace(dto.Genre) ? null : dto.Genre.Trim(),
+            IsExplicit = dto.IsExplicit,
+            Lyrics = string.IsNullOrWhiteSpace(dto.Lyrics) ? null : dto.Lyrics,
+            MediaType = "audio",
+        };
+        _db.Tracks.Add(track);
+        await _db.SaveChangesAsync();
+        await _db.Entry(track).Reference(t => t.Artist).LoadAsync();
+        return Ok(MapTrack(track, new List<int>()));
+    }
+
     [HttpPut("{id}")]
     [Authorize(Roles = "admin")]
     public async Task<IActionResult> Update(int id, [FromForm] UpdateTrackDto dto, IFormFile? coverFile)
@@ -193,32 +258,28 @@ public class TracksController : ControllerBase
     [HttpGet("{id}/recommendations")]
     public async Task<IActionResult> GetRecommendations(int id, [FromQuery] int limit = 6)
     {
-        var track = await _db.Tracks.FindAsync(id);
+        var uid = GetUserId();
+        return Ok(await _rec.SimilarAsync(id, uid > 0 ? uid : null, Math.Clamp(limit, 1, 50)));
+    }
+
+    // Tracks whose lyrics we could not find — don't hammer the external services for them on every play
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, DateTime> LyricsMisses = new();
+
+    // GET /api/tracks/{id}/lyrics — stored lyrics, or look them up once and keep them
+    [HttpGet("{id}/lyrics")]
+    public async Task<IActionResult> GetLyrics(int id)
+    {
+        var track = await _db.Tracks.Include(t => t.Artist).FirstOrDefaultAsync(t => t.Id == id);
         if (track == null) return NotFound();
+        if (!string.IsNullOrWhiteSpace(track.Lyrics)) return Ok(new { lyrics = track.Lyrics, found = true, cached = true });
+        if (LyricsMisses.TryGetValue(id, out var missedAt) && DateTime.UtcNow - missedAt < TimeSpan.FromHours(6))
+            return Ok(new { lyrics = (string?)null, found = false });
 
-        var userId = GetUserId();
-        var likedIds = userId > 0
-            ? await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync()
-            : new List<int>();
-
-        var byArtist = await _db.Tracks
-            .Include(t => t.Artist).Include(t => t.Album)
-            .Where(t => t.Id != id && t.ArtistId == track.ArtistId)
-            .OrderByDescending(t => t.PlayCount)
-            .Take(limit)
-            .ToListAsync();
-
-        var byGenre = string.IsNullOrWhiteSpace(track.Genre)
-            ? new List<Track>()
-            : await _db.Tracks
-                .Include(t => t.Artist).Include(t => t.Album)
-                .Where(t => t.Id != id && t.ArtistId != track.ArtistId && t.Genre == track.Genre)
-                .OrderByDescending(t => t.PlayCount)
-                .Take(limit)
-                .ToListAsync();
-
-        var recs = byArtist.Concat(byGenre).DistinctBy(t => t.Id).Take(limit).ToList();
-        return Ok(recs.Select(t => MapTrack(t, likedIds)));
+        var r = await _lyrics.FindAsync(track.Artist?.Name ?? "", track.Title, track.Duration, HttpContext.RequestAborted);
+        if (r == null) { LyricsMisses[id] = DateTime.UtcNow; return Ok(new { lyrics = (string?)null, found = false }); }
+        track.Lyrics = r.Text;
+        await _db.SaveChangesAsync();
+        return Ok(new { lyrics = r.Text, found = true, synced = r.Synced, source = r.Source });
     }
 
     [HttpDelete("{id}")]
@@ -315,6 +376,9 @@ public class TracksController : ControllerBase
             .Where(x => x != null)
             .ToList();
 
+        var hourly = await _db.ListeningHistory.Where(h => h.UserId == userId)
+            .GroupBy(h => h.PlayedAt.Hour).Select(g => new { hour = g.Key, count = g.Count() }).ToListAsync();
+        var seconds = await _db.ListeningHistory.Where(h => h.UserId == userId).SumAsync(h => (int?)h.Track!.Duration) ?? 0;
         var totalPlays   = await _db.ListeningHistory.Where(h => h.UserId == userId).CountAsync();
         var uniqueTracks = await _db.ListeningHistory.Where(h => h.UserId == userId).Select(h => h.TrackId).Distinct().CountAsync();
 
@@ -328,7 +392,9 @@ public class TracksController : ControllerBase
             topTracks,
             topArtists,
             totalPlays,
-            uniqueTracks
+            uniqueTracks,
+            minutes = seconds / 60,
+            hourlyUtc = Enumerable.Range(0, 24).Select(hr => hourly.FirstOrDefault(x => x.hour == hr)?.count ?? 0).ToArray()
         });
     }
 
@@ -358,14 +424,21 @@ public class TracksController : ControllerBase
         return Ok(tracks.Select(t => MapTrack(t, likedIds)));
     }
 
+    // The client calls this once per listen, after ~30 s (or half the track) — not on every range request.
     [HttpPost("{id}/log-play")]
-    [Authorize]
-    public async Task<IActionResult> LogPlay(int id)
+    [AllowAnonymous]
+    public async Task<IActionResult> LogPlay(int id, [FromQuery] int? seconds)
     {
-        var userId = GetUserId();
         var track = await _db.Tracks.FindAsync(id);
         if (track == null) return NotFound();
-        _db.ListeningHistory.Add(new ListeningHistory { UserId = userId, TrackId = id });
+        track.PlayCount++;
+        var userId = GetUserId();
+        if (userId > 0)
+        {
+            // ignore accidental double posts within 20 s
+            var recent = await _db.ListeningHistory.AnyAsync(h => h.UserId == userId && h.TrackId == id && h.PlayedAt > DateTime.UtcNow.AddSeconds(-20));
+            if (!recent) _db.ListeningHistory.Add(new ListeningHistory { UserId = userId, TrackId = id });
+        }
         await _db.SaveChangesAsync();
         return Ok();
     }
@@ -429,10 +502,21 @@ public class TracksController : ControllerBase
     public async Task<IActionResult> GetLiked()
     {
         var userId = GetUserId();
-        var likedIds = await _db.LikedTracks.Where(lt => lt.UserId == userId).Select(lt => lt.TrackId).ToListAsync();
+        var likes = await _db.LikedTracks.Where(l => l.UserId == userId).OrderByDescending(l => l.LikedAt)
+            .Select(l => l.TrackId).ToListAsync();
         var tracks = await _db.Tracks.Include(t => t.Artist).Include(t => t.Album)
-            .Where(t => likedIds.Contains(t.Id)).ToListAsync();
-        return Ok(tracks.Select(t => MapTrack(t, likedIds)));
+            .Where(t => likes.Contains(t.Id)).ToListAsync();
+        var order = likes.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
+        var likedSet = likes.ToList();
+        return Ok(tracks.OrderBy(t => order[t.Id]).Select(t => MapTrack(t, likedSet)));
+    }
+
+    [HttpGet("liked/ids")]
+    [Authorize]
+    public async Task<IActionResult> GetLikedIds()
+    {
+        var userId = GetUserId();
+        return Ok(await _db.LikedTracks.Where(l => l.UserId == userId).Select(l => l.TrackId).ToListAsync());
     }
 
     private int GetUserId()
@@ -445,5 +529,5 @@ public class TracksController : ControllerBase
         new(t.Id, t.Title, t.ArtistId, t.Artist?.Name ?? "-",
             t.AlbumId, t.Album?.Title,
             t.CoverPath, t.Duration, t.Genre, t.PlayCount, t.IsExplicit,
-            likedIds.Contains(t.Id), t.CreatedAt, t.Lyrics, t.MediaType);
+            likedIds.Contains(t.Id), t.CreatedAt, null, t.MediaType);
 }

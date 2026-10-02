@@ -54,3 +54,19 @@ server/wwwroot/
 *.flac
 *.ogg
 *.m4a
+# === Build output & local data that must never be committed ===
+server/bin/
+server/obj/
+server/%TEMP%/
+server/*.db
+server/uploads/
+temp_spotify/
+client/dist-web/
+mobile/dist/
+mobile/node_modules/
+dist-electron/
+deploy/.env
+.impeccable/review/
+.impeccable/mocks/
+.impeccable/build/
+.impeccable/config.local.json

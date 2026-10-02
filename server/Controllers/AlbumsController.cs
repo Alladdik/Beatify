@@ -49,10 +49,11 @@ public class AlbumsController : ControllerBase
             .Include(t => t.Artist)
             .Include(t => t.Album)
             .Where(t => t.AlbumId == id)
-            .Select(t => new TrackDto(t.Id, t.Title, t.ArtistId, t.Artist!.Name, t.AlbumId, t.Album != null ? t.Album.Title : null,
-                t.CoverPath, t.Duration, t.Genre, t.PlayCount, t.IsExplicit, false, t.CreatedAt, t.Lyrics, t.MediaType))
+            .OrderBy(t => t.CreatedAt).ThenBy(t => t.Id)
             .ToListAsync();
-        return Ok(tracks);
+        var uid = int.TryParse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var u) ? u : 0;
+        var liked = uid > 0 ? (await _db.LikedTracks.Where(l => l.UserId == uid).Select(l => l.TrackId).ToListAsync()).ToHashSet() : new HashSet<int>();
+        return Ok(tracks.Select(t => BeatifyServer.Services.RecommendationService.ToDto(t, liked)));
     }
 
     [HttpPost]

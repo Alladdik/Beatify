@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace BeatifyServer.Hubs;
@@ -6,6 +7,7 @@ namespace BeatifyServer.Hubs;
 /// SignalR hub for collaborative (synchronized) listening sessions.
 /// Rooms are identified by a short roomId (e.g. 4-char code).
 /// </summary>
+[Authorize]
 public class ListenTogetherHub : Hub
 {
     // roomId → { connectionId → userName }
@@ -23,6 +25,10 @@ public class ListenTogetherHub : Hub
     /// <summary>Join a room and notify all members.</summary>
     public async Task JoinRoom(string roomId, string userName)
     {
+        roomId = (roomId ?? "").Trim().ToUpperInvariant();
+        if (roomId.Length is < 3 or > 24) throw new HubException("Некоректний код кімнати");
+        // Never trust a client-supplied name — use the account's
+        userName = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? userName;
         await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
 
         var users = RoomUsers.GetOrAdd(roomId, _ => new());
@@ -35,6 +41,7 @@ public class ListenTogetherHub : Hub
     /// <summary>Leave a room explicitly.</summary>
     public async Task LeaveRoom(string roomId)
     {
+        roomId = (roomId ?? "").Trim().ToUpperInvariant();
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
 
         if (RoomUsers.TryGetValue(roomId, out var users))
@@ -49,6 +56,9 @@ public class ListenTogetherHub : Hub
     /// <summary>Broadcast playback state to other room members.</summary>
     public async Task SyncState(string roomId, object state)
     {
+        roomId = (roomId ?? "").Trim().ToUpperInvariant();
+        // only members of a room may drive it
+        if (!RoomUsers.TryGetValue(roomId, out var members) || !members.ContainsKey(Context.ConnectionId)) return;
         await Clients.OthersInGroup(roomId).SendAsync("ReceiveState", state);
     }
 

@@ -14,14 +14,15 @@ const { spawn } = require('child_process');
 const isDev      = process.argv.includes('--dev');
 const SERVER_URL = 'http://localhost:5000';
 const APP_URL    = isDev ? 'http://localhost:5173' : SERVER_URL;
-nativeTheme.themeSource = 'dark';
+nativeTheme.themeSource = 'system';  // the app has its own Lab / Plate themes and follows the OS by default
+const APP_ICON = path.join(__dirname, 'icon-256.png');
 
 function createSplash() {
   const splash = new BrowserWindow({
     width: 380, height: 300,
     frame: false, transparent: true,
     resizable: false, center: true,
-    alwaysOnTop: true, skipTaskbar: true,
+    alwaysOnTop: true, skipTaskbar: true, icon: APP_ICON,
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
   splash.loadFile(path.join(__dirname, 'splash.html'));
@@ -38,7 +39,8 @@ function createMainWindow() {
     frame: false,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 16, y: 14 },
-    backgroundColor: '#08080f',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0c0c10' : '#f4f4f6',
+    icon: APP_ICON,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -48,9 +50,14 @@ function createMainWindow() {
     },
   });
 
-  if (process.platform === 'win32') {
-    try { win.setBackgroundMaterial('acrylic'); } catch (_) {}
-  }
+  // Links to other sites open in the system browser, never inside the app window
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url) && !url.startsWith(SERVER_URL) && !url.startsWith(APP_URL)) { require('electron').shell.openExternal(url); }
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith(SERVER_URL) && !url.startsWith(APP_URL)) { e.preventDefault(); if (/^https?:\/\//i.test(url)) require('electron').shell.openExternal(url); }
+  });
 
   win.loadURL(APP_URL);
 
