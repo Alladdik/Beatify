@@ -23,7 +23,7 @@ echo "[*] $(date '+%F %T') ${LOCAL:0:7} → ${REMOTE:0:7}"
 git reset --hard FETCH_HEAD
 
 echo "[*] Збираю клієнт..."
-( cd client && npm ci --no-audit --no-fund && npm run build:web )
+( cd client && { npm ci --no-audit --no-fund || npm install --no-audit --no-fund; } && npm run build:web )
 
 echo "[*] Збираю сервер..."
 rm -rf "$APP/new"; mkdir -p "$APP/new"

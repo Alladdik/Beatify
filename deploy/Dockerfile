@@ -5,7 +5,7 @@
 FROM node:22-alpine AS client-build
 WORKDIR /src/client
 COPY client/package.json client/package-lock.json ./
-RUN npm ci
+RUN npm ci || npm install
 COPY client/ ./
 RUN npm run build:web
 
