@@ -1152,12 +1152,14 @@ export const usePlayerStore = create(
         _consecutiveErrors += 1;
         set({ isBuffering: false });
         const { queue, queueIndex } = get();
+        // MediaError codes: 1 aborted, 2 network, 3 decode, 4 source missing / format not supported
+        const why = { 1: 'перервано', 2: 'проблема з мережею', 3: 'помилка декодування', 4: 'джерело недоступне або формат не підтримується' }[err?.code];
         if (_consecutiveErrors <= 3 && queue.length > 1 && queueIndex < queue.length - 1) {
-          toast.error('Трек недоступний — пропускаю');
+          toast.error(`Трек недоступний${why ? ` (${why})` : ''} — пропускаю`);
           get().next({ auto: true });
         } else {
           set({ isPlaying: false });
-          toast.error('Не вдалося відтворити трек');
+          toast.error(why ? `Не вдалося відтворити: ${why}` : 'Не вдалося відтворити трек');
         }
       },
 

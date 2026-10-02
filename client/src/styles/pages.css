@@ -84,7 +84,23 @@
 .row-sub a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .row-album { font-size: 0.85rem; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-album a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+
 .row-actions { display: flex; align-items: center; gap: 0; }
+/* "save to the server library" — always visible, never hover-only */
+.save-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; margin-right: 6px; flex-shrink: 0;
+  border-radius: var(--r-round, 999px); background: var(--accent-soft); color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-line); font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+  transition: background var(--dur-1), opacity var(--dur-1);
+}
+.save-btn:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 26%, transparent); }
+.save-btn.busy { opacity: 0.75; cursor: progress; }
+.save-btn.done { background: transparent; color: var(--fg-3); box-shadow: inset 0 0 0 1px var(--line-2); cursor: default; }
+@media (max-width: 760px) {
+  /* icon-only on phones, but a full 40px touch target */
+  .save-btn { width: 40px; height: 40px; padding: 0; justify-content: center; margin-right: 2px; }
+  .save-btn span { display: none; }
+}
 .row-actions .hover-only { opacity: 0; transition: opacity var(--dur-1); }
 .row:hover .hover-only, .row:focus-within .hover-only, .row.menu-open .hover-only { opacity: 1; }
 .row-time { text-align: right; font-family: var(--font-mono); font-size: 0.72rem; color: var(--fg-3); font-variant-numeric: tabular-nums; }

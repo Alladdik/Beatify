@@ -3,7 +3,7 @@
 //  • Navigations: network-first, fall back to the cached shell (so /offline etc. open without a network)
 //  • Covers: stale-while-revalidate
 //  • Audio streams, API calls and SignalR are never touched.
-const VERSION = 'beatify-v3';
+const VERSION = 'beatify-v4';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 const COVERS = `${VERSION}-covers`;
@@ -34,6 +34,7 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
   if (isApi(url) || url.pathname.includes('/stream')) return;
   if (request.headers.has('range')) return; // media range requests
+  if (request.destination === 'audio' || request.destination === 'video') return; // iOS standalone is picky about media going through a worker
 
   // Covers and avatars: show what we have, refresh in the background
   if (url.pathname.startsWith('/uploads/covers') || url.pathname.startsWith('/uploads/avatars') || url.pathname.startsWith('/uploads/artists')) {

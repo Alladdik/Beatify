@@ -11,6 +11,8 @@ import { pluralUk } from '../lib/format';
 import Tile from '../components/Tile';
 import Cover, { Collage } from '../components/ui/Cover';
 import TrackList from '../components/TrackRow';
+import SaveButton from '../components/SaveButton';
+import { canSaveToLibrary } from '../lib/saveTrack';
 import { Section, Shelf, EmptyState, SkeletonRows } from '../components/Section';
 
 const TABS = [
@@ -64,7 +66,17 @@ function ExternalBlock({ source, q, enabled, limit = 10 }) {
   if (isFetching && !data) return <SkeletonRows n={4} />;
   if (isError) return <div className="note err">{errMsg(error, `Не вдалося шукати на ${label}`)}</div>;
   if (!data?.length) return <p className="muted" style={{ fontSize: '0.9rem' }}>На {label} нічого не знайшлося.</p>;
-  return <TrackList tracks={data} showAlbum={false} header={false} />;
+  return (
+    <>
+      {!canSaveToLibrary(user) && (
+        <div className="note" style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+          <Lock size={16} className="muted" style={{ flexShrink: 0 }} />
+          <span>Слухати можна одразу. Щоб <b>зберігати треки на сервер</b>, попросіть адміністратора увімкнути вам «Імпорт за посиланням» (Адмінка → Користувачі).</span>
+        </div>
+      )}
+      <TrackList tracks={data} showAlbum={false} header={false} renderExtra={(t) => <SaveButton track={t} />} />
+    </>
+  );
 }
 
 export default function SearchPage() {

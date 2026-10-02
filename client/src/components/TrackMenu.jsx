@@ -15,7 +15,7 @@ import { useOfflineStore } from '../store/offlineStore';
 import { useMyPlaylists, usePlaylistActions } from '../hooks/useLibrary';
 import { useIsMobile } from '../hooks/useMedia';
 import { isExternal, shareUrl } from '../lib/tracks';
-import { externalSearchApi, errMsg } from '../api';
+import { saveExternalTrack, canSaveToLibrary } from '../lib/saveTrack';
 
 // A single, global track menu: right-click a row, tap "…", or long-press. Opened via useUiStore.openTrackMenu.
 export default function TrackMenu() {
@@ -78,15 +78,7 @@ function MenuBody({ menu, close, mobile }) {
     toast.success('Радіо за треком запущено');
   };
 
-  const saveToLibrary = async () => {
-    const t = toast.loading('Зберігаю в бібліотеку…');
-    try {
-      await externalSearchApi.save({ url: track.externalUrl, title: track.title, artistName: track.artistName, coverUrl: track.thumbnail });
-      toast.success('Збережено в бібліотеку', { id: t });
-    } catch (e) {
-      toast.error(errMsg(e, 'Не вдалося зберегти'), { id: t });
-    }
-  };
+  const saveToLibrary = () => saveExternalTrack(track);
 
   const head = (
     <div className="menu-head" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: mobile ? '16px 20px' : '8px 12px 10px' }}>
@@ -162,7 +154,7 @@ function MenuBody({ menu, close, mobile }) {
       {ext && track.externalUrl && (
         <>
           <a className="menu-item" href={track.externalUrl} target="_blank" rel="noreferrer noopener" onClick={close}><ExternalLink size={16} /> Відкрити на {track.source === 'soundcloud' ? 'SoundCloud' : 'YouTube'}</a>
-          {(user?.role === 'admin' || user?.canImport) && <button className="menu-item" onClick={run(saveToLibrary)}><CloudDownload size={16} /> Зберегти в бібліотеку</button>}
+          {canSaveToLibrary(user) && <button className="menu-item" onClick={run(saveToLibrary)}><CloudDownload size={16} /> Зберегти в бібліотеку</button>}
         </>
       )}
     </div>

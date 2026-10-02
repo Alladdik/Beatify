@@ -145,7 +145,7 @@ export const externalSearchApi = {
   fillLyrics: (maxTracks = 50) => api.post(`/externalsearch/fill-lyrics?maxTracks=${maxTracks}`),
   radio: (trackId, limit = 5) => api.get(`/externalsearch/radio?trackId=${trackId}&limit=${limit}`),
   // Save an external track (YouTube / SoundCloud) into the library by its page URL
-  save: (data) => api.post('/download', data),
+  save: (data) => api.post('/download', data, { timeout: 5 * 60_000 }),
 };
 
 // Download (yt-dlp)
