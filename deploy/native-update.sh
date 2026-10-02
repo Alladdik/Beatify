@@ -13,6 +13,11 @@ cd "$SRC"
 exec 9>/tmp/beatify-update.lock
 flock -n 9 || { echo "[*] Оновлення вже виконується"; exit 0; }
 
+# yt-dlp needs a JavaScript runtime to solve YouTube's signature challenge; Node is already installed for the build
+if command -v yt-dlp >/dev/null && yt-dlp --help 2>/dev/null | grep -q -- '--js-runtimes' && ! grep -qs 'js-runtimes' /etc/yt-dlp.conf; then
+  echo '--js-runtimes node' >> /etc/yt-dlp.conf
+fi
+
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"; [ "$BRANCH" = "HEAD" ] && BRANCH=main
 git fetch --depth 1 --quiet origin "$BRANCH"
 LOCAL="$(git rev-parse HEAD)"; REMOTE="$(git rev-parse FETCH_HEAD)"

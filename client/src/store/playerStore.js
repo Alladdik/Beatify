@@ -968,6 +968,23 @@ function _effectsWanted() {
     s.isManualPanning || s.eqBands.some((v) => v !== 0));
 }
 
+// iOS only lets a media element start when play() runs inside the tap itself. External tracks first wait for the
+// server to resolve a stream URL (seconds), by then the tap is long gone and play() is refused — so the element is
+// claimed up front with a silent loop, then pointed at the real source once it is known.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+let _claimed = false;
+function _claimElement() {
+  _claimed = true;
+  _audio.loop = true;
+  _audio.src = SILENT_WAV;
+  _audio.play().catch(() => {});
+}
+function _releaseElement() {
+  if (!_claimed) return;
+  _claimed = false;
+  _audio.loop = false;
+}
+
 function _prepareContext() {
   _setAudioSession();
   if (!IS_IOS || _effectsWanted()) initAudioContext();
@@ -1025,20 +1042,28 @@ export const usePlayerStore = create(
         try {
           let src;
           if (isExternal(track)) {
+            if (!restore && !_prefetched.has(trackKey(track, index))) _claimElement();
             src = _prefetched.get(trackKey(track, index)) ?? await _resolveExternal(track);
             _prefetched.delete(trackKey(track, index));
           } else {
             const cached = useOfflineStore.getState().isDownloaded(track.id);
+            if (cached && !restore) _claimElement();
             src = cached ? await _resolveSource(track) : tracksApi.streamUrl(track.id);
           }
           if (token !== _playToken) return; // user already moved on
+          _releaseElement();
           _audio.src = src;
           if (restore) return;
           await _audio.play();
           _consecutiveErrors = 0;
         } catch (err) {
           if (token !== _playToken) return;
-          if (err?.name === 'NotAllowedError') { set({ isPlaying: false, isBuffering: false }); return; }
+          _releaseElement();
+          if (err?.name === 'NotAllowedError') {
+            set({ isPlaying: false, isBuffering: false });
+            toast('Натисніть ▶, щоб почати відтворення');
+            return;
+          }
           if (err?.name === 'AbortError') return;
           get()._onPlaybackError(err);
         }
@@ -1414,13 +1439,14 @@ _audio.addEventListener('waiting', () => usePlayerStore.setState({ isBuffering: 
 _audio.addEventListener('playing', () => usePlayerStore.setState({ isBuffering: false, isPlaying: true }));
 _audio.addEventListener('canplay', () => usePlayerStore.setState({ isBuffering: false }));
 _audio.addEventListener('ended', () => {
+  if (_claimed) return;
   const s = usePlayerStore.getState();
   if (s.repeat === 'one') { _audio.currentTime = 0; _audio.play().catch(() => {}); return; }
   if (s.sleepAtEnd) { s.clearSleepTimer(); usePlayerStore.setState({ isPlaying: false }); toast('Таймер сну: трек завершено'); return; }
   s.next({ auto: true });
 });
 _audio.addEventListener('error', () => {
-  if (!_audio.src || _audio.src === window.location.href) return;
+  if (_claimed || !_audio.src || _audio.src === window.location.href) return;
   const s = usePlayerStore.getState();
   if (s.currentTrack) s._onPlaybackError(_audio.error || new Error('audio error'));
 });

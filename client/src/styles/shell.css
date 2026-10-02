@@ -195,6 +195,8 @@
 
 /* ── Mobile mini-player + tab bar ── */
 @media (max-width: 760px) {
+  /* the home-indicator strip is mostly empty: reserve only half of it so the tab bar does not look lifted */
+  :root { --safe-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.5); }
   .app {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
