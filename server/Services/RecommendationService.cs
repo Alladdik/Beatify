@@ -19,7 +19,7 @@ public class RecommendationService
     public static TrackDto ToDto(Track t, HashSet<int> liked) =>
         new(t.Id, t.Title, t.ArtistId, t.Artist?.Name ?? "—", t.AlbumId, t.Album?.Title,
             t.CoverPath, t.Duration, t.Genre, t.PlayCount, t.IsExplicit,
-            liked.Contains(t.Id), t.CreatedAt, null, t.MediaType);
+            liked.Contains(t.Id), t.CreatedAt, null, t.MediaType, !string.IsNullOrWhiteSpace(t.Lyrics));
 
     public async Task<HashSet<int>> LikedIdsAsync(int? userId) =>
         userId is null ? new() : (await _db.LikedTracks.Where(l => l.UserId == userId).Select(l => l.TrackId).ToListAsync()).ToHashSet();

@@ -49,7 +49,8 @@ function MenuBody({ menu, close, mobile }) {
   const toggleLike = useLikesStore((s) => s.toggle);
   const { addToQueue, addToQueueNext } = usePlayerStore.getState();
   const offline = useOfflineStore();
-  const downloaded = !ext && offline.isDownloaded(track.id);
+  const downloaded = offline.isDownloaded(track);
+  const downloading = offline.isDownloading(track);
   const { data: playlists = [] } = useMyPlaylists();
   const { create, addTrack } = usePlaylistActions();
   const [view, setView] = useState('main'); // 'main' | 'playlists'
@@ -146,11 +147,9 @@ function MenuBody({ menu, close, mobile }) {
       {!ext && track.albumId && <button className="menu-item" onClick={run(() => navigate(`/album/${track.albumId}`))}><Disc3 size={16} /> Перейти до альбому</button>}
       {!ext && <button className="menu-item" onClick={run(startRadio)}><Radio size={16} /> Радіо за треком</button>}
       <button className="menu-item" onClick={run(share)}><Share2 size={16} /> Поділитися</button>
-      {!ext && (
-        downloaded
-          ? <button className="menu-item" onClick={run(() => offline.removeTrack(track.id))}><CloudOff size={16} /> Видалити з офлайну</button>
-          : <button className="menu-item" onClick={run(() => offline.downloadTrack(track))}><CloudDownload size={16} /> Зберегти офлайн</button>
-      )}
+      {downloaded
+        ? <button className="menu-item" onClick={run(() => offline.removeTrack(track))}><CloudOff size={16} /> Видалити з офлайну</button>
+        : <button className="menu-item" disabled={downloading} onClick={run(() => offline.downloadTrack(track))}><CloudDownload size={16} /> {downloading ? 'Завантаження…' : 'Зберегти офлайн'}</button>}
       {ext && track.externalUrl && (
         <>
           <a className="menu-item" href={track.externalUrl} target="_blank" rel="noreferrer noopener" onClick={close}><ExternalLink size={16} /> Відкрити на {track.source === 'soundcloud' ? 'SoundCloud' : 'YouTube'}</a>

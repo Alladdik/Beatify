@@ -55,10 +55,11 @@ export const useDeviceStore = create((set) => ({
       if (!state?.currentTrack) return;
       const p = usePlayerStore.getState();
       const queue = state.queue?.length ? state.queue : [state.currentTrack];
-      await p.playQueue(queue, Math.min(state.queueIndex ?? 0, queue.length - 1));
+      // a paused handoff only loads the track — starting it just to pause 900 ms later is an audible blip in the car
+      await p.playQueue(queue, Math.min(state.queueIndex ?? 0, queue.length - 1), { restore: !state.isPlaying });
+      if (!state.isPlaying) usePlayerStore.setState({ isPlaying: false, isBuffering: false });
       if (state.progress > 2) setTimeout(() => usePlayerStore.getState().seek(state.progress), 700);
       if (state.volume != null) p.setVolume(state.volume);
-      if (!state.isPlaying) setTimeout(() => usePlayerStore.getState().pause(), 900);
       toast.success('Відтворення перенесено сюди');
     });
 

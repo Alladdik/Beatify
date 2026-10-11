@@ -100,7 +100,7 @@ export default function Rail() {
               </NavLink>
               {playlists.map((pl) => (
                 <NavLink key={pl.id} to={`/playlist/${pl.id}`} className={`lib-item ${location.pathname === `/playlist/${pl.id}` ? 'active' : ''}`}>
-                  <Cover src={fileUrl('covers', pl.coverPath)} title={pl.title} />
+                  <Cover src={fileUrl('covers', pl.covers?.[0] ?? pl.coverPath)} title={pl.title} />
                   <span className="lib-item-text">
                     <span className="lib-item-name trunc">{pl.title}</span>
                     <span className="lib-item-sub trunc">{pl.trackCount} {pl.userId !== user.id ? `· ${pl.userName}` : 'треків'}</span>

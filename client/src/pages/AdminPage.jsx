@@ -49,7 +49,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
     albumId: String(track.albumId || ''),
     genre: track.genre || '',
     isExplicit: track.isExplicit || false,
-    lyrics: track.lyrics || '',
+    lyrics: undefined, // undefined = untouched: the stored text is shown from `detail` and left alone on save
   });
   const [cover, setCover] = useState(null);
   const [panel, setPanel] = useState('lyrics');
@@ -59,6 +59,10 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
   const [lyricsSource, setLyricsSource] = useState('');
 
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  // lists don't carry lyrics; without this the form opened empty and saving erased the stored text
+  const detail = useQuery({ queryKey: ['trackDetail', track.id], queryFn: () => tracksApi.getById(track.id).then(r => r.data) });
+  const lyrics = form.lyrics ?? detail.data?.lyrics ?? '';
 
   const { data: recs = [] } = useQuery({
     queryKey: ['recs', track.id],
@@ -108,7 +112,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
       fd.append('albumId', form.albumId || '0');
       fd.append('genre', form.genre || '');
       fd.append('isExplicit', form.isExplicit);
-      fd.append('lyrics', form.lyrics || '');
+      if (form.lyrics !== undefined || detail.isSuccess) fd.append('lyrics', lyrics);
       if (cover) fd.append('coverFile', cover);
       await tracksApi.update(track.id, fd);
       qc.invalidateQueries(['adminTracks']);
@@ -238,14 +242,14 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
                       {fetchingLyrics ? 'Шукаємо...' : 'Авто-пошук'}
                     </button>
                     {lyricsSource && (
-                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 20, background: form.lyrics?.startsWith('[') ? 'color-mix(in oklab, var(--accent) 15%, transparent)' : 'color-mix(in oklab, var(--fg) 7%, transparent)', color: form.lyrics?.startsWith('[') ? 'var(--accent)' : 'var(--text-muted)' }}>
-                        {form.lyrics?.startsWith('[') ? 'Synced' : 'Plain'} · {lyricsSource}
+                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 20, background: lyrics.startsWith('[') ? 'color-mix(in oklab, var(--accent) 15%, transparent)' : 'color-mix(in oklab, var(--fg) 7%, transparent)', color: lyrics.startsWith('[') ? 'var(--accent)' : 'var(--text-muted)' }}>
+                        {lyrics.startsWith('[') ? 'Synced' : 'Plain'} · {lyricsSource}
                       </span>
                     )}
-                    {form.lyrics && (
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{form.lyrics.split('\n').length} рядків</span>
+                    {lyrics && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{lyrics.split('\n').length} рядків</span>
                     )}
-                    {form.lyrics && (
+                    {lyrics && (
                       <button onClick={() => { setForm(p => ({ ...p, lyrics: '' })); setLyricsSource(''); setLyricsOptions([]); }}
                         style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3, padding: '3px 6px', borderRadius: 5 }}>
                         <X size={11} /> Очистити
@@ -272,7 +276,7 @@ function EditTrackModal({ track, artists, albums, onClose, qc }) {
 
                   <textarea
                     className="form-input"
-                    value={form.lyrics}
+                    value={lyrics}
                     onChange={set('lyrics')}
                     placeholder={'[00:12.50] Рядок з тайм-кодом (LRC)\n або просто текст без тайм-кодів...'}
                     style={{ flex: 1, resize: 'none', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.7, minHeight: 0 }}
@@ -511,7 +515,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
     toast.success('Трек завантажено!');
   };
 
-  const missingLyricsCount = tracks.filter(t => !t.lyrics).length;
+  const missingLyricsCount = tracks.filter(t => !t.hasLyrics).length;
 
   const fillAllLyrics = async () => {
     if (missingLyricsCount === 0) return toast('Всі треки вже мають текст пісні', { icon: '✅' });
@@ -668,7 +672,7 @@ function TrackTab({ artists, albums, tracks, qc }) {
                     <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.title}
                       {t.isExplicit && <span style={{ fontSize: 10, background: 'color-mix(in oklab, var(--danger) 20%, transparent)', color: 'var(--danger)', padding: '1px 4px', borderRadius: 3, marginLeft: 5 }}>E</span>}
-                      {t.lyrics && <span title="Є текст пісні" style={{ marginLeft: 5, fontSize: 10, color: 'var(--accent)', opacity: 0.7 }}>♪</span>}
+                      {t.hasLyrics && <span title="Є текст пісні" style={{ marginLeft: 5, fontSize: 10, color: 'var(--accent)', opacity: 0.7 }}>♪</span>}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.artistName}{t.albumTitle ? ` • ${t.albumTitle}` : ''}{t.genre ? ` • ${t.genre}` : ''}

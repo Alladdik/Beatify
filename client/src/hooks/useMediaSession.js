@@ -40,17 +40,27 @@ export function useMediaSession() {
     return () => ['play', 'pause', 'nexttrack', 'previoustrack', 'seekto', 'seekbackward', 'seekforward'].forEach((a) => set(a, null));
   }, []);
 
-  // Position for the lock-screen scrubber — once a second is plenty
+  // Position for the lock-screen / car scrubber. The browser extrapolates from (position, rate), so it only needs to hear
+  // about real changes — a push every second makes a car head unit (AVRCP) redraw the progress bar and re-send metadata,
+  // which on some units shows up as the track display flickering or the sound hiccuping.
   useEffect(() => {
-    if (!('mediaSession' in navigator) || !duration || !Number.isFinite(duration)) return;
-    const push = () => {
-      const a = usePlayerStore.getState().audio;
-      try { navigator.mediaSession.setPositionState({ duration, playbackRate: a.playbackRate || 1, position: Math.min(a.currentTime, duration) }); } catch { /* invalid state */ }
+    if (!('mediaSession' in navigator)) return;
+    const a = usePlayerStore.getState().audio;
+    let last = 0;
+    const push = (e) => {
+      const now = Date.now();
+      // 8D / lo-fi wobble playbackRate every frame: ignore those ratechange bursts
+      if (e?.type === 'ratechange' && now - last < 2000) return;
+      last = now;
+      const d = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : duration;
+      if (!d || !Number.isFinite(d)) return;
+      try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: a.playbackRate || 1, position: Math.min(Math.max(0, a.currentTime), d) }); } catch { /* invalid state */ }
     };
     push();
-    const id = setInterval(push, 1000);
-    return () => clearInterval(id);
-  }, [duration, trackId, isPlaying]);
+    const evts = ['loadedmetadata', 'durationchange', 'playing', 'pause', 'seeked', 'ratechange'];
+    evts.forEach((n) => a.addEventListener(n, push));
+    return () => evts.forEach((n) => a.removeEventListener(n, push));
+  }, [duration, trackId]);
 
   // Electron mini-player + taskbar buttons
   useEffect(() => {

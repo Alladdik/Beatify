@@ -122,8 +122,8 @@ function MoreMenu({ track }) {
   const { sleepTimer, sleepAtEnd, sleepTimerMinutes, setSleepTimer, isRadio, toggleRadio } = usePlayerStore();
   const offline = useOfflineStore();
   const ext = isExternal(track);
-  const downloaded = track && !ext && offline.isDownloaded(track.id);
-  const downloading = track && !ext && offline.isDownloading(track.id);
+  const downloaded = track && offline.isDownloaded(track);
+  const downloading = track && offline.isDownloading(track);
   const isVideo = track?.mediaType === 'video' && !ext;
   const run = (fn) => () => { setOpen(false); fn(); };
   const sleepOn = !!sleepTimer || sleepAtEnd;
@@ -138,8 +138,8 @@ function MoreMenu({ track }) {
         <button className="menu-item" onClick={run(() => (window.electronAPI?.showMiniPlayer ? window.electronAPI.showMiniPlayer() : ui.setMiniPlayer(!ui.miniPlayerOpen)))}><PictureInPicture2 size={16} /> Міні-плеєр</button>
         {isVideo && <button className="menu-item" onClick={run(() => ui.setVideo(true))}><Video size={16} /> Дивитись відео</button>}
         {track && !ext && <button className={`menu-item ${isRadio ? 'on' : ''}`} onClick={run(toggleRadio)}><Radio size={16} /> Радіо: схожі треки {isRadio && <Check size={14} style={{ marginLeft: 'auto' }} />}</button>}
-        {track && !ext && (
-          <button className="menu-item" disabled={downloading} onClick={run(() => (downloaded ? offline.removeTrack(track.id) : offline.downloadTrack(track)))}>
+        {track && (
+          <button className="menu-item" disabled={downloading} onClick={run(() => (downloaded ? offline.removeTrack(track) : offline.downloadTrack(track)))}>
             {downloading ? <Loader2 size={16} className="spin" /> : downloaded ? <CheckCircle2 size={16} className="accent" /> : <CloudDownload size={16} />}
             {downloaded ? 'Збережено офлайн' : downloading ? 'Завантаження…' : 'Зберегти офлайн'}
           </button>

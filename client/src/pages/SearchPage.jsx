@@ -211,7 +211,7 @@ export default function SearchPage() {
           )}
           {lr?.playlists?.length > 0 && (
             <Section title="Плейлисти">
-              <Shelf>{lr.playlists.map((p) => <Tile key={p.id} to={`/playlist/${p.id}`} art={<Cover src={fileUrl('covers', p.coverPath)} title={p.title} />} title={p.title} sub={`${p.userName} · ${p.trackCount}`} />)}</Shelf>
+              <Shelf>{lr.playlists.map((p) => <Tile key={p.id} to={`/playlist/${p.id}`} art={<Collage covers={(p.covers || []).map((c) => fileUrl('covers', c))} title={p.title} />} title={p.title} sub={`${p.userName} · ${p.trackCount}`} />)}</Shelf>
             </Section>
           )}
 

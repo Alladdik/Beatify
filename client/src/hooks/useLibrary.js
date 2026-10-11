@@ -33,7 +33,9 @@ export function usePlaylistActions() {
     try {
       await playlistsApi.addTrack(playlist.id, track.id);
       qc.invalidateQueries({ queryKey: ['myPlaylists'] });
+      qc.invalidateQueries({ queryKey: ['publicPlaylists'] });
       qc.invalidateQueries({ queryKey: ['playlist', String(playlist.id)] });
+      qc.invalidateQueries({ queryKey: ['playlistTracks', String(playlist.id)] });
       toast.success(`Додано до «${playlist.title}»`);
       return true;
     } catch (e) {

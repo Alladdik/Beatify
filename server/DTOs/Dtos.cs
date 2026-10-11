@@ -26,13 +26,13 @@ public record TrackDto(
     string? CoverPath, int Duration,
     string? Genre, int PlayCount, bool IsExplicit,
     bool IsLiked, DateTime CreatedAt,
-    string? Lyrics, string MediaType);
+    string? Lyrics, string MediaType, bool HasLyrics = false);
 
 public record CreateTrackDto(string Title, int? ArtistId, int? AlbumId, string? Genre, bool IsExplicit, int Duration, string? Lyrics, string? MediaType);
 public record UpdateTrackDto(string? Title, int? ArtistId, int AlbumId, string? Genre, bool IsExplicit, string? Lyrics);
 
 // Playlist
-public record PlaylistDto(int Id, int UserId, string UserName, string Title, string? Description, string? CoverPath, bool IsPublic, bool IsCollaborative, int TrackCount, DateTime CreatedAt);
+public record PlaylistDto(int Id, int UserId, string UserName, string Title, string? Description, string? CoverPath, bool IsPublic, bool IsCollaborative, int TrackCount, DateTime CreatedAt, List<string>? Covers = null);
 public record CreatePlaylistDto(string Title, string? Description, bool IsPublic, bool IsCollaborative = false);
 public record UpdatePlaylistDto(string? Title, string? Description, bool? IsPublic, bool? IsCollaborative);
 public record AddTrackToPlaylistDto(int TrackId);

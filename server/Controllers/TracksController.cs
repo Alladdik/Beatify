@@ -88,7 +88,7 @@ public class TracksController : ControllerBase
 
         var track = await _db.Tracks.Include(t => t.Artist).Include(t => t.Album).FirstOrDefaultAsync(t => t.Id == id);
         if (track == null) return NotFound();
-        return Ok(MapTrack(track, likedIds));
+        return Ok(MapTrack(track, likedIds) with { Lyrics = track.Lyrics, HasLyrics = !string.IsNullOrWhiteSpace(track.Lyrics) });
     }
 
     [HttpGet("{id}/stream")]
@@ -303,6 +303,9 @@ public class TracksController : ControllerBase
         var folder = track.MediaType == "video" ? "videos" : "tracks";
         var filePath = Path.Combine(_env.WebRootPath, "uploads", folder, track.FilePath);
         if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath);
+        // the cached AAC copy of a WebM/Opus original (see AudioCompat) goes with it
+        var aacCopy = Path.Combine(_env.WebRootPath, "uploads", "aac", Path.GetFileNameWithoutExtension(track.FilePath) + ".m4a");
+        try { if (System.IO.File.Exists(aacCopy)) System.IO.File.Delete(aacCopy); } catch { /* in use - harmless leftover */ }
 
         _db.Tracks.Remove(track);
         await _db.SaveChangesAsync();
@@ -496,6 +499,7 @@ public class TracksController : ControllerBase
     public async Task<IActionResult> Like(int id)
     {
         var userId = GetUserId();
+        if (!await _db.Tracks.AnyAsync(t => t.Id == id)) return NotFound(new { message = "Трек не знайдено" });
         var existing = await _db.LikedTracks.FirstOrDefaultAsync(lt => lt.UserId == userId && lt.TrackId == id);
         if (existing != null)
         {
@@ -540,5 +544,5 @@ public class TracksController : ControllerBase
         new(t.Id, t.Title, t.ArtistId, t.Artist?.Name ?? "-",
             t.AlbumId, t.Album?.Title,
             t.CoverPath, t.Duration, t.Genre, t.PlayCount, t.IsExplicit,
-            likedIds.Contains(t.Id), t.CreatedAt, null, t.MediaType);
+            likedIds.Contains(t.Id), t.CreatedAt, null, t.MediaType, !string.IsNullOrWhiteSpace(t.Lyrics));
 }

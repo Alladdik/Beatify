@@ -133,12 +133,10 @@ public class SearchController : ControllerBase
             .Select(a => new AlbumDto(a.Id, a.Title, a.ArtistId, a.Artist!.Name, a.CoverPath, a.Year, a.Genre, a.Tracks.Count))
             .ToListAsync();
 
-        var playlists = await _db.Playlists
-            .Include(p => p.User).Include(p => p.PlaylistTracks)
+        var playlists = await PlaylistsController.CardsAsync(_db.Playlists
             .Where(p => p.IsPublic && p.Title.ToLower().Contains(lower))
-            .Take(5)
-            .Select(p => new PlaylistDto(p.Id, p.UserId, p.User!.Name, p.Title, p.Description, p.CoverPath, p.IsPublic, p.IsCollaborative, p.PlaylistTracks.Count, p.CreatedAt))
-            .ToListAsync();
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(5));
 
         return Ok(new SearchResultDto(scoredTracks, artists, albums, playlists));
     }

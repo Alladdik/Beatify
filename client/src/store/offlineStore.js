@@ -2,12 +2,18 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { openDB } from 'idb';
 import toast from 'react-hot-toast';
+import { externalSearchApi, errMsg } from '../api';
+import { isExternal } from '../lib/tracks';
 import { isElectron, isNative, streamUrl as apiStreamUrl, fileUrl } from '../lib/config';
 
 // Offline copies live where the platform allows:
-//   Electron   → files on disk (IPC)         audioUrl = file URL
+//   Electron   → files on disk (IPC)         audioUrl = local:// URL
 //   Capacitor  → app Data directory          audioUrl = capacitor://… file URL
-//   Browser/PWA→ IndexedDB blob              audioUrl = `idb://<id>` (resolved to a blob: URL on demand)
+//   Browser/PWA→ IndexedDB blob              audioUrl = `idb://<key>` (resolved to a blob: URL on demand)
+//
+// Library tracks are keyed by their id ("42"), search results from YouTube / SoundCloud by their `key`
+// ("ext:youtube:abc") — so anyone signed in can keep a search result on their own device without
+// needing the permission to import it into the server library.
 
 const DB_NAME = 'beatify_audio_store';
 let dbPromise = null;
@@ -20,60 +26,91 @@ const getDB = () => {
   return dbPromise;
 };
 
-const blobUrls = new Map(); // id → blob: URL (kept for the session)
+/** Storage key of a track, or of an already-computed key. */
+export const offlineKey = (t) => {
+  if (t == null) return '';
+  if (typeof t !== 'object') return String(t);
+  if (t.id != null) return String(t.id);
+  return t.key || t.externalUrl || t.webpage_url || '';
+};
+
+// Safe as a file name on every platform; library ids stay as they are
+const fileId = (key) => {
+  if (/^\d+$/.test(key)) return key;
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0;
+  return `${key.replace(/[^\w-]+/g, '_').slice(0, 48)}_${h.toString(36)}`;
+};
 
 async function fetchBlob(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Сервер відповів ${res.status}`);
-  return res.blob();
+  let res;
+  try { res = await fetch(url); } catch { throw new Error('немає зʼєднання із сервером'); }
+  if (!res.ok) throw new Error(`сервер відповів ${res.status}`);
+  const type = res.headers.get('content-type') || '';
+  if (/text\/html|application\/json/i.test(type)) throw new Error('сервер повернув не аудіо');
+  const blob = await res.blob();
+  if (!blob.size) throw new Error('файл порожній');
+  return blob;
+}
+
+/** Where the audio bytes come from: our own stream for library tracks, a signed proxy for search results. */
+async function sourceUrl(track) {
+  if (!isExternal(track)) return apiStreamUrl(track.id);
+  const page = track.externalUrl || track.webpage_url;
+  if (!page) throw new Error('у треку немає посилання на джерело');
+  const res = await externalSearchApi.getPreviewUrl(page);
+  if (!res.data?.streamUrl) throw new Error('не вдалося отримати аудіо з цього джерела');
+  return res.data.streamUrl;
 }
 
 export const useOfflineStore = create(
   persist(
     (set, get) => ({
-      // { [trackId]: { audioUrl, coverUrl, metadata, downloadedAt, size } }
+      // { [key]: { audioUrl, coverUrl, metadata, downloadedAt, size } }
       downloadedTracks: {},
       downloading: {},
 
-      isDownloaded: (trackId) => !!get().downloadedTracks[String(trackId)],
-      isDownloading: (trackId) => !!get().downloading[String(trackId)],
+      isDownloaded: (t) => !!get().downloadedTracks[offlineKey(t)],
+      isDownloading: (t) => !!get().downloading[offlineKey(t)],
 
-      resolveAudioUrl: async (trackId) => {
-        const entry = get().downloadedTracks[String(trackId)];
+      resolveAudioUrl: async (t) => {
+        const id = offlineKey(t);
+        const entry = get().downloadedTracks[id];
         if (!entry?.audioUrl) return null;
         if (!entry.audioUrl.startsWith('idb://')) return entry.audioUrl;
-        const id = String(trackId);
-        if (blobUrls.has(id)) return blobUrls.get(id);
+        // A fresh blob: URL every time — the player revokes the previous one when the track changes, so handing out a
+        // remembered URL would make a second play of the same saved track fail with "source not supported"
         try {
           const blob = await (await getDB()).get('audio', id);
-          if (!blob) return null;
-          const url = URL.createObjectURL(blob);
-          blobUrls.set(id, url);
-          return url;
+          return blob ? URL.createObjectURL(blob) : null;
         } catch {
           return null;
         }
       },
 
-      getLocalCoverUrl: (trackId) => get().downloadedTracks[String(trackId)]?.coverUrl ?? null,
+      getLocalCoverUrl: (t) => get().downloadedTracks[offlineKey(t)]?.coverUrl ?? null,
 
       downloadTrack: async (track) => {
-        const id = String(track.id);
-        if (track.id == null) { toast('Спочатку збережіть трек у бібліотеку'); return; }
+        const id = offlineKey(track);
+        if (!id) { toast('Спочатку збережіть трек у бібліотеку'); return; }
         if (get().downloading[id] || get().downloadedTracks[id]) return;
         set((s) => ({ downloading: { ...s.downloading, [id]: true } }));
+        const t = toast.loading(`Завантажую «${track.title}»…`);
 
         try {
-          const streamUrl = apiStreamUrl(track.id);
-          const coverUrl = track.coverPath ? fileUrl('covers', track.coverPath) : null;
+          const streamUrl = await sourceUrl(track);
+          const ext = isExternal(track);
+          const coverUrl = ext ? (track.thumbnail ?? null) : track.coverPath ? fileUrl('covers', track.coverPath) : null;
+          const name = fileId(id);
           let audioUrl;
           let finalCover = coverUrl;
           let size = 0;
 
           if (isElectron) {
-            const result = await window.electronAPI.downloadOffline({ trackId: track.id, streamUrl, coverUrl, ext: '.mp3' });
+            const result = await window.electronAPI.downloadOffline({ trackId: name, streamUrl, coverUrl });
             audioUrl = result.audioUrl;
             finalCover = result.coverUrl ?? coverUrl;
+            size = result.size ?? 0;
           } else if (isNative) {
             const { Filesystem, Directory } = await import('@capacitor/filesystem');
             const blob = await fetchBlob(streamUrl);
@@ -84,7 +121,7 @@ export const useOfflineStore = create(
               r.onerror = reject;
               r.readAsDataURL(blob);
             });
-            const path = `tracks/offline_${id}.mp3`;
+            const path = `tracks/offline_${name}.mp3`;
             await Filesystem.writeFile({ path, data, directory: Directory.Data, recursive: true });
             const { uri } = await Filesystem.getUri({ path, directory: Directory.Data });
             const { Capacitor } = await import('@capacitor/core');
@@ -103,24 +140,24 @@ export const useOfflineStore = create(
             },
             downloading: Object.fromEntries(Object.entries(s.downloading).filter(([k]) => k !== id)),
           }));
-          toast.success(`«${track.title}» збережено офлайн`);
+          toast.success(`«${track.title}» збережено офлайн`, { id: t });
         } catch (err) {
           set((s) => ({ downloading: Object.fromEntries(Object.entries(s.downloading).filter(([k]) => k !== id)) }));
-          toast.error(`Не вдалося завантажити: ${err.message}`);
+          const reason = err?.response ? errMsg(err, 'помилка сервера') : err?.message;
+          toast.error(`Не вдалося завантажити: ${reason}`, { id: t });
         }
       },
 
-      removeTrack: async (trackId) => {
-        const id = String(trackId);
+      removeTrack: async (t) => {
+        const id = offlineKey(t);
+        const name = fileId(id);
         try {
-          if (isElectron) await window.electronAPI.removeOffline({ trackId });
+          if (isElectron) await window.electronAPI.removeOffline({ trackId: name });
           else if (isNative) {
             const { Filesystem, Directory } = await import('@capacitor/filesystem');
-            await Filesystem.deleteFile({ path: `tracks/offline_${id}.mp3`, directory: Directory.Data });
+            await Filesystem.deleteFile({ path: `tracks/offline_${name}.mp3`, directory: Directory.Data });
           } else {
             await (await getDB()).delete('audio', id);
-            const u = blobUrls.get(id);
-            if (u) { URL.revokeObjectURL(u); blobUrls.delete(id); }
           }
         } catch { /* already gone */ }
         set((s) => {

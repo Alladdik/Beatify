@@ -51,7 +51,8 @@ public class DownloadController : ControllerBase
             var artist = root.TryGetProperty("artist", out var ar) ? ar.GetString()
                        : root.TryGetProperty("uploader", out var up) ? up.GetString() : "Unknown";
             var album = root.TryGetProperty("album", out var al) ? al.GetString() : null;
-            var duration = root.TryGetProperty("duration", out var d) ? (int?)d.GetInt32() : null;
+            // yt-dlp reports SoundCloud / some YouTube durations as fractional seconds - GetInt32 would throw on those
+            var duration = root.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number ? (int?)Math.Round(d.GetDouble()) : null;
             var thumbnail = root.TryGetProperty("thumbnail", out var th) ? th.GetString() : null;
             var webpage = root.TryGetProperty("webpage_url", out var wp) ? wp.GetString() : url;
 
@@ -69,28 +70,16 @@ public class DownloadController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Download([FromBody] DownloadRequestDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Url))
-            return BadRequest(new { message = "URL обов'язковий" });
+        if (!IsHttpUrl(dto.Url))
+            return BadRequest(new { message = "Потрібне посилання http(s)" });
 
-        // Validate/create artist
-        Artist artist;
+        // An existing artist is checked up front; a new one is only created once the download has worked,
+        // so a failed download does not leave an empty "Unknown Artist" behind
+        Artist? artist = null;
         if (dto.ArtistId.HasValue && dto.ArtistId > 0)
         {
-            var found = await _db.Artists.FindAsync(dto.ArtistId.Value);
-            if (found == null) return BadRequest(new { message = "Виконавця не знайдено" });
-            artist = found;
-        }
-        else
-        {
-            var artistName = string.IsNullOrWhiteSpace(dto.ArtistName) ? "Unknown Artist" : dto.ArtistName;
-            var existing = await _db.Artists.FirstOrDefaultAsync(a => a.Name == artistName);
-            if (existing != null) artist = existing;
-            else
-            {
-                artist = new Artist { Name = artistName };
-                _db.Artists.Add(artist);
-                await _db.SaveChangesAsync();
-            }
+            artist = await _db.Artists.FindAsync(dto.ArtistId.Value);
+            if (artist == null) return BadRequest(new { message = "Виконавця не знайдено" });
         }
 
         var tracksPath = Path.Combine(_env.WebRootPath, "uploads", "tracks");
@@ -130,7 +119,21 @@ public class DownloadController : ControllerBase
         if (!result.Success)
         {
             _logger.LogWarning("yt-dlp failed: {Error}", result.Error);
+            // leave no half-downloaded .part / thumbnail files in the library folder
+            foreach (var leftover in Directory.GetFiles(tracksPath, $"{outputId}.*")) { try { System.IO.File.Delete(leftover); } catch { /* best effort */ } }
             return BadRequest(new { message = $"Помилка завантаження: {result.Error}" });
+        }
+
+        if (artist == null)
+        {
+            var artistName = string.IsNullOrWhiteSpace(dto.ArtistName) ? "Unknown Artist" : dto.ArtistName.Trim();
+            artist = await _db.Artists.FirstOrDefaultAsync(a => a.Name == artistName);
+            if (artist == null)
+            {
+                artist = new Artist { Name = artistName };
+                _db.Artists.Add(artist);
+                await _db.SaveChangesAsync();
+            }
         }
 
         static bool IsImageExt(string f) =>
@@ -343,8 +346,8 @@ public class DownloadController : ControllerBase
     [HttpGet("playlist-info")]
     public async Task<IActionResult> GetPlaylistInfo([FromQuery] string url)
     {
-        if (string.IsNullOrWhiteSpace(url))
-            return BadRequest(new { message = "URL обов'язковий" });
+        if (!IsHttpUrl(url))
+            return BadRequest(new { message = "Потрібне посилання http(s)" });
 
         try
         {
@@ -368,7 +371,7 @@ public class DownloadController : ControllerBase
                     var trackTitle = entry.TryGetProperty("title", out var tt) ? tt.GetString() : "Трек";
                     var trackUrl = entry.TryGetProperty("url", out var tu) ? tu.GetString()
                                  : entry.TryGetProperty("webpage_url", out var wp) ? wp.GetString() : null;
-                    var duration = entry.TryGetProperty("duration", out var dur) && dur.ValueKind == JsonValueKind.Number ? dur.GetInt32() : 0;
+                    var duration = entry.TryGetProperty("duration", out var dur) && dur.ValueKind == JsonValueKind.Number ? (int)Math.Round(dur.GetDouble()) : 0;
 
                     if (!string.IsNullOrWhiteSpace(trackUrl))
                     {
@@ -398,8 +401,8 @@ public class DownloadController : ControllerBase
     [HttpPost("playlist")]
     public async Task<IActionResult> DownloadPlaylist([FromBody] DownloadPlaylistRequestDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Url))
-            return BadRequest(new { message = "URL обов'язковий" });
+        if (!IsHttpUrl(dto.Url))
+            return BadRequest(new { message = "Потрібне посилання http(s)" });
 
         try
         {
@@ -561,6 +564,9 @@ public class DownloadController : ControllerBase
         }
         catch { return 0; }
     }
+
+    private static bool IsHttpUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps);
 
     private static Task<(bool Success, string Output, string Error)> RunYtDlp(string[] args) =>
         YtDlp.RunAsync(args, TimeSpan.FromMinutes(10));

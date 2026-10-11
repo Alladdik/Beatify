@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -42,6 +43,7 @@ export default function QueuePanel() {
   const user = useAuthStore((s) => s.user);
   const openMenu = useUiStore((s) => s.openTrackMenu);
   const { create } = usePlaylistActions();
+  const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -76,8 +78,15 @@ export default function QueuePanel() {
     if (!lib.length) return;
     const pl = await create(`Черга · ${new Date().toLocaleDateString('uk-UA', { day: 'numeric', month: 'short' })}`);
     if (!pl) return;
-    await Promise.all(lib.map((t) => playlistsApi.addTrack(pl.id, t.id).catch(() => null)));
-    toast.success(`Збережено: ${tracksLabel(lib.length)} у «${pl.title}»`);
+    // one by one: the server numbers each new row after the last, so parallel requests would shuffle the order
+    let added = 0;
+    for (const t of lib) {
+      try { await playlistsApi.addTrack(pl.id, t.id); added++; } catch { /* already there / removed from the library */ }
+    }
+    qc.invalidateQueries({ queryKey: ['myPlaylists'] });
+    qc.invalidateQueries({ queryKey: ['playlistTracks', String(pl.id)] });
+    if (added) toast.success(`Збережено: ${tracksLabel(added)} у «${pl.title}»`);
+    else toast.error('Не вдалося додати треки в плейлист');
   };
 
   if (!queue.length) {

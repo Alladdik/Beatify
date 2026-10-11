@@ -23,7 +23,10 @@ export default function OfflinePage() {
   const [quota, setQuota] = useState(null);
 
   const entries = Object.entries(downloaded);
-  const tracks = entries.map(([id, e]) => ({ ...e.metadata, id: Number(id) })).sort((a, b) => (downloaded[b.id]?.downloadedAt ?? 0) - (downloaded[a.id]?.downloadedAt ?? 0));
+  // library tracks come back with their numeric id, saved search results stay external (id null)
+  const tracks = entries
+    .sort(([, a], [, b]) => (b.downloadedAt ?? 0) - (a.downloadedAt ?? 0))
+    .map(([id, e]) => (/^\d+$/.test(id) ? { ...e.metadata, id: Number(id) } : { ...e.metadata, id: null }));
   const bytes = entries.reduce((a, [, e]) => a + (e.size || 0), 0);
 
   useEffect(() => {

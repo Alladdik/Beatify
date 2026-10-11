@@ -74,7 +74,7 @@ export default function LibraryPage() {
             <Section title="Мої плейлисти" right={<button className="btn sm" onClick={newPlaylist}><Plus size={14} /> Новий</button>}>
               {mine.length === 0 ? <p className="muted">Плейлистів ще немає. Створіть перший — він з’явиться і в меню «Додати до плейліста».</p> : (
                 <div className="grid">
-                  {mine.map((p) => <Tile key={p.id} to={`/playlist/${p.id}`} art={<Cover src={fileUrl('covers', p.coverPath)} title={p.title} />} title={p.title} sub={`${tracksLabel(p.trackCount)}${p.userId !== user.id ? ` · ${p.userName}` : ''}`} />)}
+                  {mine.map((p) => <Tile key={p.id} to={`/playlist/${p.id}`} art={<Collage covers={(p.covers || []).map((c) => fileUrl('covers', c))} title={p.title} />} title={p.title} sub={`${tracksLabel(p.trackCount)}${p.userId !== user.id ? ` · ${p.userName}` : ''}`} />)}
                 </div>
               )}
             </Section>
@@ -84,7 +84,7 @@ export default function LibraryPage() {
 
           {others.length > 0 && (
             <Section title="Публічні плейлисти">
-              <div className="grid">{others.map((p) => <Tile key={p.id} to={`/playlist/${p.id}`} art={<Cover src={fileUrl('covers', p.coverPath)} title={p.title} />} title={p.title} sub={`${p.userName} · ${p.trackCount}`} />)}</div>
+              <div className="grid">{others.map((p) => <Tile key={p.id} to={`/playlist/${p.id}`} art={<Collage covers={(p.covers || []).map((c) => fileUrl('covers', c))} title={p.title} />} title={p.title} sub={`${p.userName} · ${p.trackCount}`} />)}</div>
             </Section>
           )}
         </>

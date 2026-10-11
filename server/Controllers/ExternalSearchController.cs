@@ -201,7 +201,16 @@ public class ExternalSearchController : ControllerBase
         if (Request.Headers.TryGetValue("Range", out var range) && !string.IsNullOrEmpty(range))
             req.Headers.TryAddWithoutValidation("Range", range.ToString());
 
-        using var upstream = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, HttpContext.RequestAborted);
+        HttpResponseMessage upstream;
+        try { upstream = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, HttpContext.RequestAborted); }
+        catch (OperationCanceledException) { return; } // the listener skipped before the source answered
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Audio proxy: source unreachable");
+            Response.StatusCode = 502;
+            return;
+        }
+        using var _ = upstream;
         Response.StatusCode = (int)upstream.StatusCode;
         Response.ContentType = upstream.Content.Headers.ContentType?.ToString() ?? "audio/mp4";
         Response.Headers["Accept-Ranges"] = "bytes";

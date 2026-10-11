@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+using BeatifyServer.Data;
 
 namespace BeatifyServer.Hubs;
 
@@ -8,7 +10,7 @@ namespace BeatifyServer.Hubs;
 /// Clients join a room per playlist and receive live updates when tracks are added/removed/reordered.
 /// </summary>
 [Authorize]
-public class CollaborativeHub : Hub
+public class CollaborativeHub(AppDbContext db) : Hub
 {
     // playlistId → { connectionId → userName }
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<
@@ -17,12 +19,18 @@ public class CollaborativeHub : Hub
 
     private static List<object> GetViewers(string playlistId) =>
         Viewers.TryGetValue(playlistId, out var users)
-            ? users.Select(kv => (object)new { name = kv.Value }).Distinct().ToList()
+            ? users.Values.Distinct().Select(n => (object)new { name = n }).ToList()
             : new();
 
     public async Task JoinPlaylist(string playlistId, string userName)
     {
         userName = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? userName;
+
+        // a private playlist's room is for its owner only
+        if (!int.TryParse(playlistId, out var pid) || !int.TryParse(Context.UserIdentifier, out var uid)
+            || !await db.Playlists.AnyAsync(p => p.Id == pid && (p.UserId == uid || p.IsPublic)))
+            throw new HubException("Плейлист недоступний");
+
         await Groups.AddToGroupAsync(Context.ConnectionId, playlistId);
         var users = Viewers.GetOrAdd(playlistId, _ => new());
         users[Context.ConnectionId] = userName;

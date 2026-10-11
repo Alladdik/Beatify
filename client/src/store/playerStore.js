@@ -25,6 +25,11 @@ function _resumeCtx() {
 const IS_IOS = typeof navigator !== 'undefined' &&
   (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
+// Phones (iOS + Android): the Web Audio graph is only built when an effect is actually in use. A phone driving a car
+// stereo over Bluetooth / Android Auto / CarPlay has little CPU headroom once the screen is off, and a graph that
+// does nothing useful is exactly what produces crackle and dropouts there.
+const IS_MOBILE = IS_IOS || (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent));
+
 // Tells Safari this is music (plays with the silent switch on and keeps going when locked / backgrounded).
 function _setAudioSession() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older Safari / other browsers */ }
@@ -52,6 +57,11 @@ export const EQ_BAND_COUNT = EQ_FREQS.length;
 let _audioCtx = null;
 let _filters  = [];
 let _analyser = null;
+let _limiter  = null;   // safety net after the effects: boosts (sub-bass +13 dB, EQ, presets) must not clip into the DAC
+let _source   = null;   // MediaElementAudioSourceNode — a media element can only ever be wrapped once
+let _routed   = null;   // 'fx' (source → EQ/effects chain) | 'direct' (source → analyser → speakers)
+let _spatialOn = null;  // dry/wet feed the HRTF panners, or skip them
+let _reverbOn  = null;  // convolver fed, or skipped
 
 let _dryGain = null;
 let _wetGain = null;
@@ -222,6 +232,8 @@ function startEffectsAnimation() {
       return;
     }
     
+    const baseRate = isNightcoreActive ? 1.25 : 1.0;
+
     // ─── 8D Panning: non-linear speed + figure-8 elevation ───────────────────
     if (is8DActive && _panner) {
       // Non-linear speed: slightly faster at back (head shadowing effect realism)
@@ -245,7 +257,7 @@ function startEffectsAnimation() {
       // Subtle Doppler: very slightly modulate playbackRate as source swings
       // Sound source moving toward listener = slightly faster reading = higher pitch
       const dopplerShift = 1.0 + Math.sin(_pannerAngle) * 0.004;
-      if (_audio && !isLofiActive && !isDouble8DActive) _audio.playbackRate = dopplerShift;
+      if (_audio && !isLofiActive && !isDouble8DActive) _audio.playbackRate = baseRate * dopplerShift;
     }
 
     // ─── Double 8D: bass clockwise (slow, wide), treble counter-clockwise (faster, tighter) ──
@@ -285,7 +297,7 @@ function startEffectsAnimation() {
       // Multi-frequency flutter: primary slow wow + secondary faster flutter
       const wow     = Math.sin(_flutterAngle * 0.7) * 0.003;
       const flutter = Math.sin(_flutterAngle * 4.5) * 0.001;
-      _audio.playbackRate = 1.0 + wow + flutter;
+      _audio.playbackRate = baseRate * (1.0 + wow + flutter);
     } else if (_audio && !is8DActive && !isNightcoreActive) {
       _audio.playbackRate = 1.0;
     }
@@ -426,6 +438,7 @@ function applyAudioEffects(state) {
 
   const now = _audioCtx.currentTime;
   const T = 0.06; // smoothing time constant
+  _syncRouting(state);
 
   // ─── 1. Reverb Wet/Dry ─────────────────────────────────────────────────────
   // Each mode has a natural wet setting; user slider adjusts relative to that
@@ -435,6 +448,7 @@ function applyAudioEffects(state) {
   if (isPerfectAudioActive && targetWet < 0.10) targetWet = 0.10;
   if (isLofiActive && targetWet < 0.20) targetWet = 0.20;    // room of vinyl
 
+  _routeReverb(targetWet > 0.001);
   const dryLevel = Math.max(0.25, 1.0 - targetWet * 0.55);
   if (_wetGain && _dryGain) {
     _wetGain.gain.setTargetAtTime(targetWet, now, T);
@@ -463,6 +477,9 @@ function applyAudioEffects(state) {
   }
 
   // ─── 3. Animation Loop ──────────────────────────────────────────────────────
+  // With pitch preservation on, every tiny playbackRate step (Doppler, tape wow) makes the browser's time-stretcher
+  // re-sync — an audible warble/grain. These modes want a plain varispeed, so the lock is off only while they run.
+  _setPitchLock(!(is8DActive || isLofiActive));
   if (is8DActive || isDouble8DActive || isLofiActive) {
     startEffectsAnimation();
   } else if (_audio && !isNightcoreActive) {
@@ -591,12 +608,62 @@ function applyAudioEffects(state) {
 }
 
 
+function _setPitchLock(on) {
+  _audio.preservesPitch = on;
+  _audio.mozPreservesPitch = on;
+  _audio.webkitPreservesPitch = on;
+}
+
+// ─── Routing ────────────────────────────────────────────────────────────────
+// Everything between the <audio> element and the speakers is coloration. With no effect in use the signal takes the
+// shortest path; the HRTF panner (which folds stereo into a binaural mono-ish image) and the convolver are only
+// in the path while 8D / manual placement / reverb actually need them.
+function _fxWanted(s, bands = s.eqBands) {
+  return !!(s.is8DActive || s.isPerfectAudioActive || s.isAutoEqActive || s.isLofiActive || s.isKaraokeActive ||
+    s.isSubBassActive || s.isVocalBoostActive || s.isDouble8DActive || s.isBassRumbleActive || s.isNightcoreActive ||
+    s.isManualPanning || s.reverbWet > 0 || bands.some((v) => v !== 0));
+}
+
+function _route(fx) {
+  if (!_audioCtx || !_source) return;
+  const mode = fx ? 'fx' : 'direct';
+  if (mode === _routed) return;
+  _routed = mode;
+  try { _source.disconnect(); } catch { /* nothing connected yet */ }
+  if (fx) _source.connect(_filters[0]);
+  else _source.connect(_analyser);
+}
+
+function _routeSpatial(on) {
+  if (!_dryGain || on === _spatialOn) return;
+  _spatialOn = on;
+  [_dryGain, _wetGain].forEach((g) => {
+    try { g.disconnect(); } catch { /* not connected */ }
+    if (on) { g.connect(_pannerLPFilter); g.connect(_pannerHPFilter); }
+    else g.connect(_limiter);
+  });
+}
+
+function _routeReverb(on) {
+  if (!_effectChainInNode || on === _reverbOn) return;
+  _reverbOn = on;
+  if (on) _effectChainInNode.connect(_reverbNode);
+  else { try { _effectChainInNode.disconnect(_reverbNode); } catch { /* not connected */ } }
+}
+
+function _syncRouting(s, bands) {
+  if (!_audioCtx || !_source) return;
+  _route(_fxWanted(s, bands));
+  _routeSpatial(!!(s.is8DActive || s.isDouble8DActive || s.isManualPanning));
+}
+
 function initAudioContext() {
   if (_audioCtx) return;
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
 
-  _audioCtx = new AudioContext();
+  // 'playback' = bigger buffers: no underruns when the output is a Bluetooth link or the screen is off
+  try { _audioCtx = new AudioContext({ latencyHint: 'playback' }); } catch { _audioCtx = new AudioContext(); }
 
   // Auto-resume if iOS suspends the context while audio is playing
   _audioCtx.addEventListener('statechange', () => {
@@ -605,7 +672,7 @@ function initAudioContext() {
     }
   });
 
-  const source = _audioCtx.createMediaElementSource(_audio);
+  _source = _audioCtx.createMediaElementSource(_audio);
 
   _analyser = _audioCtx.createAnalyser();
   _analyser.fftSize = 512;
@@ -620,7 +687,6 @@ function initAudioContext() {
     return filter;
   });
 
-  source.connect(_filters[0]);
   for (let i = 0; i < _filters.length - 1; i++) {
     _filters[i].connect(_filters[i + 1]);
   }
@@ -806,8 +872,7 @@ function initAudioContext() {
   // 2.8s reverb — longer tail with smoother decay (was 2.2)
   _reverbNode.buffer = createReverbBuffer(_audioCtx, 2.8, 1.8);
 
-  _effectChainInNode.connect(_dryGain);
-  _effectChainInNode.connect(_reverbNode);
+  _effectChainInNode.connect(_dryGain);   // the convolver is fed only while reverb is wanted (see _routeReverb)
   _reverbNode.connect(_wetGain);
 
   // Create crossover filters for panner splitting
@@ -855,21 +920,29 @@ function initAudioContext() {
     _panner2.setPosition(0, 0, -1);
   }
 
-  _dryGain.connect(_pannerLPFilter);
-  _wetGain.connect(_pannerLPFilter);
-
-  _dryGain.connect(_pannerHPFilter);
-  _wetGain.connect(_pannerHPFilter);
-
   _pannerLPFilter.connect(_pannerLPGain);
   _pannerLPGain.connect(_panner);
-  _panner.connect(_analyser);
-
   _pannerHPFilter.connect(_pannerHPGain);
   _pannerHPGain.connect(_panner2);
-  _panner2.connect(_analyser);
+
+  // Everything the effect chain produces ends in the limiter; the untouched signal bypasses it
+  _limiter = _audioCtx.createDynamicsCompressor();
+  _limiter.threshold.value = -1.5;
+  _limiter.knee.value = 0;
+  _limiter.ratio.value = 20;
+  _limiter.attack.value = 0.002;
+  _limiter.release.value = 0.12;
+  _panner.connect(_limiter);
+  _panner2.connect(_limiter);
+  _limiter.connect(_analyser);
 
   _analyser.connect(_audioCtx.destination);
+
+  // Start clean: source straight to the speakers; applyAudioEffects switches the chain in when something needs it
+  _routed = _spatialOn = _reverbOn = null;
+  _route(false);
+  _routeSpatial(false);
+  _routeReverb(false);
 
   // Apply persisted EQ & effects
   setTimeout(() => {
@@ -885,6 +958,7 @@ export function getAnalyser() { return _analyser; }
 const applyEqBands = (bands) => {
   if (!_audioCtx || !_filters.length) return;
   const state = usePlayerStore.getState();
+  _syncRouting(state, bands);
   bands.forEach((val, i) => {
     if (_filters[i]) {
       let gain = val;
@@ -929,12 +1003,12 @@ function _revokeObjectUrl() {
 
 async function _resolveSource(track) {
   // Offline copy (Electron file, Capacitor file, or IndexedDB blob) wins over the network
-  const offline = await useOfflineStore.getState().resolveAudioUrl(track.id);
+  const offline = await useOfflineStore.getState().resolveAudioUrl(track);
   if (offline) {
     if (offline.startsWith('blob:')) { _revokeObjectUrl(); _objectUrl = offline; }
     return offline;
   }
-  return tracksApi.streamUrl(track.id);
+  return isExternal(track) ? _resolveExternal(track) : tracksApi.streamUrl(track.id);
 }
 
 // Stream URL of the next online track, resolved ahead of time: after `ended` with the screen off
@@ -946,7 +1020,7 @@ function _prefetchNext() {
   if (isShuffle) return;
   const idx = queueIndex + 1;
   const nxt = queue[idx];
-  if (!nxt || !isExternal(nxt)) return;
+  if (!nxt || !isExternal(nxt) || useOfflineStore.getState().isDownloaded(nxt)) return;
   const key = trackKey(nxt, idx);
   if (_prefetched.has(key) || _prefetchingFor === key) return;
   _prefetchingFor = key;
@@ -962,10 +1036,7 @@ async function _resolveExternal(track) {
 // Plain <audio> keeps playing with the screen off everywhere. Routing it through Web Audio (EQ, 8D, reverb)
 // is what iOS may silence on lock — so on iPhone the graph is only built when an effect is actually in use.
 function _effectsWanted() {
-  const s = usePlayerStore.getState();
-  return !!(s.is8DActive || s.isPerfectAudioActive || s.isAutoEqActive || s.isLofiActive || s.isKaraokeActive ||
-    s.isSubBassActive || s.isVocalBoostActive || s.isDouble8DActive || s.isBassRumbleActive || s.isNightcoreActive ||
-    s.isManualPanning || s.eqBands.some((v) => v !== 0));
+  return _fxWanted(usePlayerStore.getState());
 }
 
 // iOS only lets a media element start when play() runs inside the tap itself. External tracks first wait for the
@@ -974,6 +1045,7 @@ function _effectsWanted() {
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 let _claimed = false;
 function _claimElement() {
+  if (!IS_IOS) return; // elsewhere play() after an await is allowed; the extra src swap only adds a Bluetooth route glitch
   _claimed = true;
   _audio.loop = true;
   _audio.src = SILENT_WAV;
@@ -987,7 +1059,7 @@ function _releaseElement() {
 
 function _prepareContext() {
   _setAudioSession();
-  if (!IS_IOS || _effectsWanted()) initAudioContext();
+  if (!IS_MOBILE || _effectsWanted()) initAudioContext();
   _resumeCtx();
 }
 
@@ -1016,7 +1088,7 @@ export const usePlayerStore = create(
       isDouble8DActive:     false,
       isBassRumbleActive:   false,
       isNightcoreActive:    false,
-      reverbWet:            0.15,
+      reverbWet:            0,
       isManualPanning:      false,
       manualPos:            { x: 0, z: -0.4, h: 0 },
       activePreset:         'none',
@@ -1041,12 +1113,12 @@ export const usePlayerStore = create(
 
         try {
           let src;
-          if (isExternal(track)) {
+          const cached = useOfflineStore.getState().isDownloaded(track);
+          if (isExternal(track) && !cached) {
             if (!restore && !_prefetched.has(trackKey(track, index))) _claimElement();
             src = _prefetched.get(trackKey(track, index)) ?? await _resolveExternal(track);
             _prefetched.delete(trackKey(track, index));
           } else {
-            const cached = useOfflineStore.getState().isDownloaded(track.id);
             if (cached && !restore) _claimElement();
             src = cached ? await _resolveSource(track) : tracksApi.streamUrl(track.id);
           }
@@ -1283,7 +1355,7 @@ export const usePlayerStore = create(
           is8DActive: false, isPerfectAudioActive: false, isAutoEqActive: false,
           isLofiActive: false, isKaraokeActive: false, isSubBassActive: false,
           isVocalBoostActive: false, isDouble8DActive: false, isBassRumbleActive: false,
-          isNightcoreActive: false, reverbWet: 0.15, isManualPanning: false,
+          isNightcoreActive: false, reverbWet: 0, isManualPanning: false,
         };
         const presets = {
           none: off,
@@ -1350,7 +1422,7 @@ export const usePlayerStore = create(
     {
       name:    'beatify-player',
       storage: debouncedStorage,
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         if (!persisted) return persisted;
         if (persisted.eqBands?.length === 5) {
@@ -1359,6 +1431,8 @@ export const usePlayerStore = create(
         } else if (!Array.isArray(persisted.eqBands) || persisted.eqBands.length !== EQ_BAND_COUNT) {
           persisted.eqBands = new Array(EQ_BAND_COUNT).fill(0);
         }
+        // reverb used to sit at 15 % on an untouched player; that baseline is gone
+        if (version < 4 && persisted.reverbWet === 0.15) persisted.reverbWet = 0;
         if (version < 3) {
           persisted.repeat = persisted.isRepeat ? 'one' : 'off';
           delete persisted.isRepeat;
@@ -1448,7 +1522,9 @@ _audio.addEventListener('ended', () => {
   s.next({ auto: true });
 });
 _audio.addEventListener('error', () => {
-  if (_claimed || !_audio.src || _audio.src === window.location.href) return;
+  // _audio.error is already cleared once a newer source was assigned: that is a stale event from a track the
+  // play() rejection has just skipped, and reacting to it too would skip a second, perfectly good track
+  if (_claimed || !_audio.error || !_audio.src || _audio.src === window.location.href) return;
   const s = usePlayerStore.getState();
-  if (s.currentTrack) s._onPlaybackError(_audio.error || new Error('audio error'));
+  if (s.currentTrack) s._onPlaybackError(_audio.error);
 });

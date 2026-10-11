@@ -4,6 +4,13 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { spawn } = require('child_process');
+const { pathToFileURL } = require('url');
+
+// local:// serves offline copies to the <audio> element. Without these privileges Chromium treats it as an
+// opaque scheme: no streaming, no range requests, so saved tracks refuse to play or seek.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'local', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true, corsEnabled: true } },
+]);
 
 // --dev  → load the Vite dev server (localhost:5173).
 // otherwise → load the app straight from the .NET backend (localhost:5000),
@@ -130,21 +137,62 @@ function stopBackend() {
   serverProc = null;
 }
 
-function downloadFile(fileUrl, destPath) {
+const EXT_BY_TYPE = {
+  'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a', 'audio/aac': '.aac',
+  'audio/webm': '.webm', 'audio/ogg': '.ogg', 'audio/opus': '.opus', 'audio/flac': '.flac', 'audio/wav': '.wav',
+  'audio/x-wav': '.wav', 'video/mp4': '.mp4', 'video/webm': '.webm',
+  'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif',
+};
+
+/**
+ * Download to a temp file and move it into place only when complete, so a dropped connection never leaves a
+ * half-file that looks saved. Follows redirects. Resolves { ext, size } (ext taken from the Content-Type).
+ */
+function downloadFile(fileUrl, destBase, { fallbackExt = '', redirects = 5 } = {}) {
   return new Promise((resolve, reject) => {
+    const tmp = `${destBase}.part`;
+    const fail = (err) => { fs.unlink(tmp, () => {}); reject(err); };
     const mod = fileUrl.startsWith('https') ? https : http;
-    const file = fs.createWriteStream(destPath);
-    mod.get(fileUrl, (res) => {
-      if (res.statusCode !== 200) {
-        file.close();
-        fs.unlink(destPath, () => {});
-        reject(new Error(`HTTP ${res.statusCode}`));
+
+    const req = mod.get(fileUrl, { headers: { 'User-Agent': 'Beatify' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+        res.resume();
+        const next = new URL(res.headers.location, fileUrl).toString();
+        downloadFile(next, destBase, { fallbackExt, redirects: redirects - 1 }).then(resolve, reject);
         return;
       }
+      if (res.statusCode !== 200) { res.resume(); fail(new Error(`HTTP ${res.statusCode}`)); return; }
+
+      const type = String(res.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (type.startsWith('text/') || type === 'application/json') { res.resume(); fail(new Error('сервер повернув не файл')); return; }
+      const expected = Number(res.headers['content-length']) || 0;
+      const ext = EXT_BY_TYPE[type] || fallbackExt;
+
+      const file = fs.createWriteStream(tmp);
+      let received = 0;
+      res.on('data', (c) => { received += c.length; });
+      res.on('error', (e) => { file.destroy(); fail(e); });
+      res.on('aborted', () => { file.destroy(); fail(new Error('зʼєднання перервано')); });
+      file.on('error', fail);
+      file.on('finish', () => {
+        if (!received || (expected && received < expected)) { fail(new Error('файл завантажено не повністю')); return; }
+        // drop an older copy that has a different extension
+        removeOfflineFiles(path.dirname(destBase), path.basename(destBase));
+        fs.rename(tmp, `${destBase}${ext}`, (err) => (err ? fail(err) : resolve({ ext, size: received })));
+      });
       res.pipe(file);
-      file.on('finish', () => { file.close(); resolve(); });
-    }).on('error', (err) => { file.close(); fs.unlink(destPath, () => {}); reject(err); });
+    });
+    req.setTimeout(60000, () => req.destroy(new Error('сервер не відповідає')));
+    req.on('error', fail);
   });
+}
+
+function removeOfflineFiles(dir, base) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    if (n.startsWith(`${base}.`) && !n.endsWith('.part')) { try { fs.unlinkSync(path.join(dir, n)); } catch { /* in use / gone */ } }
+  }
 }
 
 app.whenReady().then(async () => {
@@ -160,10 +208,11 @@ app.whenReady().then(async () => {
 
   // Serve offline files via local:// protocol
   protocol.handle('local', (request) => {
-    const urlPath = request.url.slice('local://'.length);
+    const u = new URL(request.url); // local://tracks/42.mp3 → host "tracks", path "/42.mp3"
     const offlineDir = path.join(app.getPath('userData'), 'offline');
-    const filePath = path.join(offlineDir, urlPath);
-    return net.fetch(`file://${filePath}`);
+    const filePath = path.normalize(path.join(offlineDir, decodeURIComponent(u.host + u.pathname)));
+    if (!filePath.startsWith(offlineDir + path.sep)) return new Response('Forbidden', { status: 403 });
+    return net.fetch(pathToFileURL(filePath).toString(), { headers: request.headers, bypassCustomProtocolHandlers: true });
   });
 
   const splash = createSplash();
@@ -287,42 +336,40 @@ app.whenReady().then(async () => {
   app.on('before-quit', () => { globalShortcut.unregisterAll(); stopBackend(); });
 
   // Offline download
-  ipcMain.handle('offline:download', async (_, { trackId, streamUrl, coverUrl, ext }) => {
+  ipcMain.handle('offline:download', async (_, { trackId, streamUrl, coverUrl }) => {
+    const id = String(trackId);
+    if (!/^[\w-]+$/.test(id)) throw new Error('Некоректний ідентифікатор треку');
     const offlineDir = path.join(app.getPath('userData'), 'offline');
     const tracksDir  = path.join(offlineDir, 'tracks');
     const coversDir  = path.join(offlineDir, 'covers');
     fs.mkdirSync(tracksDir, { recursive: true });
     fs.mkdirSync(coversDir, { recursive: true });
 
-    const audioExt  = ext || '.mp3';
-    const audioFile = `${trackId}${audioExt}`;
-    const audioPath = path.join(tracksDir, audioFile);
-
-    await downloadFile(streamUrl, audioPath);
+    const audio = await downloadFile(streamUrl, path.join(tracksDir, id), { fallbackExt: '.mp3' });
+    const audioFile = `${id}${audio.ext}`;
 
     let coverFile = null;
     if (coverUrl) {
-      const coverExt  = path.extname(coverUrl) || '.jpg';
-      coverFile = `${trackId}${coverExt}`;
-      try { await downloadFile(coverUrl, path.join(coversDir, coverFile)); } catch { coverFile = null; }
+      try {
+        const cover = await downloadFile(coverUrl, path.join(coversDir, id), { fallbackExt: '.jpg' });
+        coverFile = `${id}${cover.ext}`;
+      } catch { coverFile = null; /* a missing cover must not fail the track */ }
     }
 
     return {
       audioUrl:  `local://tracks/${audioFile}`,
       coverUrl:  coverFile ? `local://covers/${coverFile}` : null,
-      audioPath,
+      audioPath: path.join(tracksDir, audioFile),
+      size:      audio.size,
     };
   });
 
-  // Remove offline track
+  // Remove offline track (whatever extension it was saved with)
   ipcMain.handle('offline:remove', (_, { trackId }) => {
+    const id = String(trackId);
+    if (!/^[\w-]+$/.test(id)) return { ok: false };
     const offlineDir = path.join(app.getPath('userData'), 'offline');
-    ['tracks', 'covers'].forEach(dir => {
-      ['.mp3', '.mp4', '.wav', '.flac', '.ogg', '.jpg', '.png', '.webp', '.jpeg'].forEach(ext => {
-        const f = path.join(offlineDir, dir, `${trackId}${ext}`);
-        try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch { /* ignore */ }
-      });
-    });
+    ['tracks', 'covers'].forEach((dir) => removeOfflineFiles(path.join(offlineDir, dir), id));
     return { ok: true };
   });
 
